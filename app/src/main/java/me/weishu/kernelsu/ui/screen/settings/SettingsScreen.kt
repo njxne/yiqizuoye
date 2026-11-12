@@ -44,20 +44,9 @@ fun SettingPager(
 
     val actions = SettingsScreenActions(
         onSetCheckUpdate = viewModel::setCheckUpdate,
-        onSetCheckModuleUpdate = viewModel::setCheckModuleUpdate,
         onSetUiModeIndex = { index ->
             viewModel.setUiMode(if (index == 0) UiMode.Miuix.value else UiMode.Material.value)
         },
-        onSetSuCompatMode = viewModel::setSuCompatMode,
-        onSetKernelUmountEnabled = viewModel::setKernelUmountEnabled,
-        onSetSelinuxHideEnabled = viewModel::setSelinuxHideEnabled,
-        onSetSulogEnabled = viewModel::setSulogEnabled,
-        onSetAdbRootEnabled = viewModel::setAdbRootEnabled,
-        onSetShellSuAdbOnlyEnabled = viewModel::setShellSuAdbOnlyEnabled,
-        onSetDefaultUmountModules = viewModel::setDefaultUmountModules,
-        onSetEnableWebDebugging = viewModel::setEnableWebDebugging,
-        onSetAutoJailbreak = viewModel::setAutoJailbreak,
-        onSetUseSoftReboot = viewModel::setUseSoftReboot,
         onOpenAbout = { navigator.push(Route.About) },
     )
 
