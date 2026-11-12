@@ -99,14 +99,14 @@ object AiClient {
 
         val content = buildJsonArray {
             add(buildJsonObject {
-                put("type", "text")
-                put("text", text.toString())
+                put("type", JsonPrimitive("text"))
+                put("text", JsonPrimitive(text.toString()))
             })
             for (b64 in imagesB64) {
                 add(buildJsonObject {
-                    put("type", "image_url")
+                    put("type", JsonPrimitive("image_url"))
                     put("image_url", buildJsonObject {
-                        put("url", "data:image/jpeg;base64,$b64")
+                        put("url", JsonPrimitive("data:image/jpeg;base64,$b64"))
                     })
                 })
             }
@@ -115,21 +115,21 @@ object AiClient {
         val messages = buildJsonArray {
             if (system.isNotBlank()) {
                 add(buildJsonObject {
-                    put("role", "system")
-                    put("content", system)
+                    put("role", JsonPrimitive("system"))
+                    put("content", JsonPrimitive(system))
                 })
             }
             add(buildJsonObject {
-                put("role", "user")
+                put("role", JsonPrimitive("user"))
                 put("content", content)
             })
         }
 
         val payload = buildJsonObject {
-            put("model", model)
+            put("model", JsonPrimitive(model))
             put("messages", messages)
-            put("temperature", 0.2)
-            put("stream", false)
+            put("temperature", JsonPrimitive(0.2))
+            put("stream", JsonPrimitive(false))
         }
 
         val req = Request.Builder()

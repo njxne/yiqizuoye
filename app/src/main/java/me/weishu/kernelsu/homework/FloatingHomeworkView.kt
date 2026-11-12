@@ -9,11 +9,11 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.TextureView
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.camera.view.PreviewView
 
 /**
  * 悬浮窗视图。
@@ -40,7 +40,7 @@ class FloatingHomeworkView(
         fun onMove(dx: Int, dy: Int)
     }
 
-    val previewView = TextureView(context)
+    val previewView = PreviewView(context)
 
     private val fabView = TextView(context).apply {
         text = "拍"
@@ -215,7 +215,8 @@ class FloatingHomeworkView(
     private fun spacer(): View = View(context).apply {
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 1
-        ).also { it.setBackgroundColor(0x33FFFFFF) }
+        )
+        setBackgroundColor(0x33FFFFFF)
     }
 
     private fun textView(text: String, sizeSp: Float, bold: Boolean, color: Int): TextView =
@@ -237,7 +238,7 @@ class FloatingHomeworkView(
             setBackgroundDrawable(roundBackground(0x33FFFFFF, 12f))
             isClickable = true
             isFocusable = true
-            setOnClickListener(onClick)
+            setOnClickListener { onClick() }
         }
 
     private fun roundBackground(color: Int, radiusDp: Float): GradientDrawable =

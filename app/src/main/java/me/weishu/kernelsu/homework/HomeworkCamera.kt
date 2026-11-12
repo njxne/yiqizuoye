@@ -5,12 +5,12 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Size
-import android.view.TextureView
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -24,33 +24,33 @@ object HomeworkCamera {
      * 手动驱动的 LifecycleOwner。
      *
      * CameraX 的 `bindToLifecycle` 要求宿主至少处于 STARTED 状态，而后台 Service 没有
-     * 生命周期可绑，所以这里自己造一个并把状态推到 RESUMED。
+     * 生命周期可绑，Activity 的生命周期在视图就绪时也可能还没到 STARTED。所以自己造一个，
+     * 并在 [Controller.start] 里推到 RESUMED。
      */
     class FakeLifecycleOwner : LifecycleOwner {
         val registry = LifecycleRegistry(this)
 
-        override fun getLifecycle(): Lifecycle = registry
+        override val lifecycle: Lifecycle
+            get() = registry
 
         fun resume() {
-            if (registry.currentState == Lifecycle.State.RESUMED) return
-            registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-        }
-
-        fun pause() {
-            if (registry.currentState == Lifecycle.State.DESTROYED) return
-            registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+            if (registry.currentState != Lifecycle.State.RESUMED) {
+                registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+            }
         }
 
         fun destroy() {
-            registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+            if (registry.currentState != Lifecycle.State.DESTROYED) {
+                registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+            }
         }
     }
 
     class Controller(
         private val context: Context,
-        private val owner: LifecycleOwner,
-        private val textureView: TextureView,
+        private val previewView: PreviewView,
     ) {
+        private val owner = FakeLifecycleOwner()
         private val executor: ExecutorService = Executors.newSingleThreadExecutor()
         private var provider: ProcessCameraProvider? = null
         @Volatile
@@ -63,7 +63,7 @@ object HomeworkCamera {
         fun start(): Boolean {
             if (isReady) return true
             val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(textureView.surfaceProvider)
+                it.setSurfaceProvider(previewView.surfaceProvider)
             }
             val capture = ImageCapture.Builder()
                 .setTargetResolution(Size(2048, 2048))
@@ -72,10 +72,11 @@ object HomeworkCamera {
             imageCapture = capture
 
             return try {
+                owner.resume()
                 val cam = ProcessCameraProvider.getInstance(context).get()
                 provider = cam
                 cam.unbindAll()
-                cam.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, listOf(preview, capture))
+                cam.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
                 isReady = true
                 true
             } catch (e: Exception) {
@@ -89,6 +90,7 @@ object HomeworkCamera {
             provider = null
             imageCapture = null
             isReady = false
+            owner.destroy()
             executor.shutdownNow()
         }
 

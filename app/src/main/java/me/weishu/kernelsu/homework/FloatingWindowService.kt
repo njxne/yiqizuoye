@@ -41,6 +41,7 @@ class FloatingWindowService : Service() {
 
         private const val NOTIFICATION_ID = 88001
         private const val CHANNEL_ID = "homework_float"
+        private const val TAG = "HomeworkFloat"
 
         fun start(context: Context, collapse: Boolean = false) {
             val intent = Intent(context, FloatingWindowService::class.java).apply {
@@ -73,7 +74,6 @@ class FloatingWindowService : Service() {
     private var windowView: FloatingHomeworkView? = null
     private var windowParams: WindowManager.LayoutParams? = null
     private var camera: HomeworkCamera.Controller? = null
-    private lateinit var cameraOwner: HomeworkCamera.FakeLifecycleOwner
     private lateinit var tts: TtsEngine
 
     private val callback = object : FloatingHomeworkView.Callback {
@@ -110,7 +110,6 @@ class FloatingWindowService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        cameraOwner = HomeworkCamera.FakeLifecycleOwner()
         tts = TtsEngine(applicationContext).also { it.init() }
         refreshStats()
     }
@@ -128,7 +127,7 @@ class FloatingWindowService : Service() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                val collapse = intent.getBooleanExtra(EXTRA_COLLAPSE, false)
+                val collapse = intent?.getBooleanExtra(EXTRA_COLLAPSE, false) ?: false
                 startForegroundCompat()
                 addWindowView(collapse)
             }
@@ -220,6 +219,7 @@ class FloatingWindowService : Service() {
             cameraStarted = true
             Thread {
                 if (!c.start()) {
+                    cameraStarted = false
                     mainHandler.post { v.setHint("悬浮窗里开不了相机，改用全屏相机") }
                 }
             }.start()
@@ -409,8 +409,4 @@ class FloatingWindowService : Service() {
     private fun cameraPermissionGranted(): Boolean =
         ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
-
-    private companion object {
-        const val TAG = "HomeworkFloat"
-    }
 }

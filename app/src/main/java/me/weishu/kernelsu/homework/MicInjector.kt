@@ -2,8 +2,8 @@ package me.weishu.kernelsu.homework
 
 import android.content.Context
 import android.util.Log
-import com.github.topjohnwu.libsu.core.Shell
-import com.github.topjohnwu.libsu.service.ShellUtils
+import com.topjohnwu.superuser.Shell
+import com.topjohnwu.superuser.ShellUtils
 import java.io.File
 
 /**
@@ -44,7 +44,7 @@ object MicInjector {
         "Capture Switch", "Mic Reference", "Voice Mic", "Main Mic",
     )
 
-    fun hasRoot(): Boolean = runCatching { Shell.getInstance().isRooted }.getOrDefault(false)
+    fun hasRoot(): Boolean = runCatching { Shell.getShell().isRoot }.getOrDefault(false)
 
     fun injectAsync(context: Context, audio: File, onState: (Result) -> Unit) {
         Thread { inject(audio, onState) }.start()
@@ -52,8 +52,7 @@ object MicInjector {
 
     /** 停掉正在往虚拟设备里写的进程。 */
     fun stop() {
-        val shell = Shell.getInstance()
-        if (!shell.isRooted) return
+        val shell = rootShell() ?: return
         ShellUtils.fastCmd(shell, "pkill -f 'tinyplay|ffmpeg|/dev/snd/loopback' 2>/dev/null")
         ShellUtils.fastCmd(shell, "pkill -f 'cat > /dev/snd/hw' 2>/dev/null")
     }
@@ -63,8 +62,8 @@ object MicInjector {
             onState(Result(State.FAILED, "朗读音频是空的，没法注入"))
             return
         }
-        val shell = Shell.getInstance()
-        if (!shell.isRooted) {
+        val shell = rootShell()
+        if (shell == null) {
             onState(Result(State.NO_ROOT, "没有 root，声音只能从扬声器出来，对方 App 听不到"))
             return
         }
@@ -76,16 +75,24 @@ object MicInjector {
             ))
             return
         }
-        routeMicToLoopback(shell, card)
-        onState(Result(State.ROUTED, "已把麦克风切到虚拟音频设备（card $card）"))
+        if (!routeMicToLoopback(shell, card)) {
+            onState(Result(
+                State.FAILED,
+                "找到了虚拟声卡，但机器上没有能切的麦克风控制项，声音只能从扬声器出来",
+            ))
+            return
+        }
         onState(Result(State.INJECTING, "正在把朗读音频写进虚拟麦克风…"))
-        val ok = playInto(shell, card, audio)
-        if (ok) {
+        if (playInto(shell, card, audio)) {
             onState(Result(State.DONE, "声音已灌进麦克风，去「$targetPackage」里点开始朗读"))
         } else {
-            onState(Result(State.FAILED, "写入虚拟麦克风失败，已回退到扬声器播放"))
+            onState(Result(State.FAILED, "写入虚拟麦克风失败，声音只能从扬声器出来"))
         }
     }
+
+    /** 拿一个能用的 root shell；拿不到或不是 root 就返回 null。 */
+    private fun rootShell(): Shell? =
+        runCatching { Shell.getShell() }.getOrNull()?.takeIf { it.isRoot }
 
     // ==================== 虚拟声卡 ====================
 
@@ -149,13 +156,16 @@ object MicInjector {
     private fun playInto(shell: Shell, card: Int, audio: File): Boolean {
         val dev = "/dev/snd/hw$card,0"
         val path = audio.absolutePath
+        // snd-aloop 默认是 16bit / 44.1kHz / 立体声，先按这个格式灌。
         if (ShellUtils.fastCmdResult(shell, "command -v ffmpeg 2>/dev/null")) {
-            val cmd = "ffmpeg -nostdin -y -i '$path' -f wav -acodec pcm_s16le -ar 44100 -ac 2 '$dev'"
-            if (ShellUtils.fastCmdResult(shell, cmd)) return true
+            val direct = "ffmpeg -nostdin -y -i '$path' -f s16le -acodec pcm_s16le -ar 44100 -ac 2 '$dev'"
+            if (ShellUtils.fastCmdResult(shell, direct)) return true
+            val piped =
+                "ffmpeg -nostdin -y -i '$path' -f s16le -acodec pcm_s16le -ar 44100 -ac 2 - 2>/dev/null | cat > '$dev'"
+            if (ShellUtils.fastCmdResult(shell, piped)) return true
         }
-        // 去掉 WAV 头直接写裸 PCM（snd-aloop 默认 16bit 立体声，采样率自适应）。
+        // 没有 ffmpeg 就硬把 WAV 头剥掉直接写裸 PCM（头部长度因文件而异，44 是常见值）。
         val raw = "dd if='$path' bs=44 skip=1 2>/dev/null | cat > '$dev'"
-        if (ShellUtils.fastCmdResult(shell, raw)) return true
-        return false
+        return ShellUtils.fastCmdResult(shell, raw)
     }
 }

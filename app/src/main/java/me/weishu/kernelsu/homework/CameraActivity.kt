@@ -4,18 +4,20 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraAccessException
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Parcelable
 import android.os.ResultReceiver
-import android.view.Surface
-import android.view.TextureView
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import me.weishu.kernelsu.R
@@ -29,7 +31,7 @@ class CameraActivity : ComponentActivity() {
         private const val REQUEST_CAMERA = 1001
     }
 
-    private lateinit var textureView: TextureView
+    private lateinit var previewView: PreviewView
     private lateinit var countView: TextView
     private lateinit var flashView: TextView
     private lateinit var captureView: TextView
@@ -40,13 +42,14 @@ class CameraActivity : ComponentActivity() {
     private var receiver: ResultReceiver? = null
     private val uris = ArrayList<Uri>()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var flashOn = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.homework_camera)
 
-        textureView = findViewById(R.id.hw_camera_preview)
+        previewView = findViewById(R.id.hw_camera_preview)
         countView = findViewById(R.id.hw_camera_count)
         flashView = findViewById(R.id.hw_flash)
         captureView = findViewById(R.id.hw_capture)
@@ -60,19 +63,9 @@ class CameraActivity : ComponentActivity() {
         doneView.setOnClickListener { finishWithUris() }
         flashView.setOnClickListener { toggleFlash() }
 
-        textureView.setSurfaceTextureListener(object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(surface: Surface, width: Int, height: Int) {
-                startCamera()
-            }
-
-            override fun onSurfaceTextureSizeChanged(surface: Surface, width: Int, height: Int) {}
-
-            override fun onSurfaceTextureDestroyed(surface: Surface): Boolean = false
-
-            override fun onSurfaceTextureUpdated(surface: Surface) {}
-        })
-
-        if (!hasCameraPermission()) {
+        if (hasCameraPermission()) {
+            startCamera()
+        } else {
             ActivityCompat.requestPermissions(
                 this, arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA
             )
@@ -84,7 +77,7 @@ class CameraActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
 
     override fun onRequestPermissionsResult(
-        requestCode: Int, permissions: Array<out String>, grantResults: IntArray,
+        requestCode: Int, permissions: Array<String>, grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode != REQUEST_CAMERA) return
@@ -98,9 +91,7 @@ class CameraActivity : ComponentActivity() {
 
     private fun startCamera() {
         if (!hasCameraPermission()) return
-        val c = controller ?: HomeworkCamera.Controller(
-            this, HomeworkCamera.FakeLifecycleOwner(), textureView
-        ).also { controller = it }
+        val c = controller ?: HomeworkCamera.Controller(this, previewView).also { controller = it }
         if (c.isReady) return
         Thread {
             if (!c.start()) {
@@ -123,18 +114,38 @@ class CameraActivity : ComponentActivity() {
         )
     }
 
+    /** 挑一个带闪光灯的摄像头。闪光灯几乎都在后置上，按朝向找；找不到就退第一个。 */
+    private fun flashCameraId(cm: CameraManager): String? {
+        val ids = try {
+            cm.cameraIdList
+        } catch (_: CameraAccessException) {
+            return null
+        }
+        if (ids.isEmpty()) return null
+        for (id in ids) {
+            val facing = try {
+                cm.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING)
+            } catch (_: CameraAccessException) {
+                null
+            }
+            if (facing == CameraCharacteristics.LENS_FACING_BACK) return id
+        }
+        return ids.first()
+    }
+
     private fun toggleFlash() {
         val cm = getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return
-        val id = cm.cameraIdList.firstOrNull { it == CameraManager.CAMERA_ID_BACK }
-            ?: cm.cameraIdList.firstOrNull() ?: return
-        val next = !cm.getTorchMode(id)
+        val id = flashCameraId(cm) ?: return
+        // Android 6 之后没有 getTorchMode()，闪光灯状态只能自己记。
+        flashOn = !flashOn
         try {
-            cm.setTorchMode(id, next)
+            cm.setTorchMode(id, flashOn)
         } catch (_: Exception) {
+            flashOn = !flashOn
             toast("这个机型不支持闪光灯")
             return
         }
-        flashView.text = if (next) "闪光灯开" else "闪光灯"
+        flashView.text = if (flashOn) "闪光灯开" else "闪光灯"
     }
 
     private fun finishWithUris() {
