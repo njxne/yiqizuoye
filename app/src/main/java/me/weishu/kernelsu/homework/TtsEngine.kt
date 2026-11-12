@@ -1,7 +1,7 @@
 package me.weishu.kernelsu.homework
 
-import android.content.ComponentName
 import android.content.Context
+import android.os.Bundle
 import android.os.LocaleList
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -15,6 +15,9 @@ import java.util.Locale
  * 用系统内置的离线 TTS 引擎（不联网、不依赖云端语音），支持两种出口：
  * - [speak]：直接从扬声器播放，用户能听见；
  * - [synthesizeToFile]：先把语音合成成一个 WAV 文件，交给 [MicInjector] 尝试灌进目标 App 的麦克风。
+ *
+ * 系统 API 里 `UtteranceProgressListener` 的抽象方法是 `onError(String)`，
+ * `onError(String, Int)` 是另一个可覆盖的方法，所以两个都要写，否则编译不过。
  */
 class TtsEngine(
     private val app: Context,
@@ -30,26 +33,84 @@ class TtsEngine(
     var isReady: Boolean = false
         private set
 
-    /** 系统里有没有可用的离线 TTS 引擎。 */
-    val hasLocalEngine: Boolean
-        get() = TextToSpeech.Engine.getEngines(app).any {
-            val pkg = it.packageName
-            pkg.startsWith("com.") && !pkg.startsWith("android.") &&
-                    !pkg.contains("cloud") && !pkg.contains("vendor")
-        }
+    /** 系统里装的语音引擎。名字取自 `EngineInfo.name`（引擎包名）。 */
+    val engines: List<TextToSpeech.EngineInfo>
+        get() = tts?.engines?.orEmpty() ?: emptyList()
 
-    val engines: List<ComponentName>
-        get() = TextToSpeech.Engine.getEngines(app)
+    /**
+     * 有没有可用的本地（离线）语音模型。
+     *
+     * 判据是中文语音数据是否装在本机：`isLanguageAvailable` 返回 `CHECK_VOICE_DATA_PASS`
+     * 就说明不必联网。有些机器上这个方法不稳，再退一步看 voices 里有没有中文。
+     */
+    val hasLocalEngine: Boolean
+        get() {
+            val t = tts ?: return false
+            try {
+                if (t.isLanguageAvailable(Locale.CHINA) == TextToSpeech.Engine.CHECK_VOICE_DATA_PASS) {
+                    return true
+                }
+            } catch (_: Exception) {
+            }
+            return try {
+                t.voices.any { it.locale.language == "zh" }
+            } catch (_: Exception) {
+                false
+            }
+        }
 
     private var tts: TextToSpeech? = null
     private var onSpeakDone: (() -> Unit)? = null
     private var onSpeakError: ((String) -> Unit)? = null
+    private var onSynthDone: ((Boolean) -> Unit)? = null
+
+    /**
+     * 唯一的进度监听器，按 utterance id 派发。
+     *
+     * 扬声器朗读用固定 id [UTTERANCE_ID]，合成到文件用 `hw_` 前缀的 id，互不干扰，
+     * 因此整个引擎只需要一个 listener，不用反复 set。
+     */
+    private val progress = object : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {}
+
+        override fun onDone(utteranceId: String?) {
+            when (utteranceId) {
+                UTTERANCE_ID -> {
+                    onSpeakDone?.invoke()
+                    onSpeakDone = null
+                    onSpeakError = null
+                }
+                else -> if (utteranceId != null && utteranceId.startsWith(SYNTH_PREFIX)) {
+                    onSynthDone?.invoke(true)
+                    onSynthDone = null
+                }
+            }
+        }
+
+        override fun onError(utteranceId: String?) {
+            when (utteranceId) {
+                UTTERANCE_ID -> {
+                    onSpeakError?.invoke("语音引擎出错")
+                    onSpeakDone = null
+                    onSpeakError = null
+                }
+                else -> if (utteranceId != null && utteranceId.startsWith(SYNTH_PREFIX)) {
+                    onSynthDone?.invoke(false)
+                    onSynthDone = null
+                }
+            }
+        }
+
+        override fun onError(utteranceId: String?, errorCode: Int) {
+            Log.w(TAG, "utterance error code=$errorCode")
+            onError(utteranceId)
+        }
+    }
 
     @Synchronized
     fun init() {
         if (tts != null) return
-        val t = TextToSpeech(app.applicationContext, this)
-        tts = t
+        tts = TextToSpeech(app.applicationContext, this)
     }
 
     /** 等 TTS 引擎就绪（最多 [timeoutMs]），已就绪时立即返回。 */
@@ -73,18 +134,7 @@ class TtsEngine(
         if (ok == TextToSpeech.LANG_MISSING_DATA || ok == TextToSpeech.LANG_NOT_SUPPORTED) {
             t.setLanguage(Locale.getDefault())
         }
-        t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
-
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId == UTTERANCE_ID) onSpeakDone?.invoke()
-            }
-
-            override fun onError(utteranceId: String?, errorCode: Int) {
-                Log.w(TAG, "utterance error code=$errorCode")
-                if (utteranceId == UTTERANCE_ID) onSpeakError?.invoke("语音引擎出错")
-            }
-        })
+        t.setOnUtteranceProgressListener(progress)
         isReady = true
     }
 
@@ -116,23 +166,13 @@ class TtsEngine(
             onDone(false)
             return
         }
-        if (file.parentFile != null && !file.parentFile.exists()) {
-            file.parentFile.mkdirs()
-        }
-        val id = "hw_${System.currentTimeMillis()}"
-        val code = t.synthesizeToFile(text, file, object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
-
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId == id) onDone(true)
-            }
-
-            override fun onError(utteranceId: String?, errorCode: Int) {
-                Log.w(TAG, "synthesize error code=$errorCode")
-                onDone(false)
-            }
-        })
+        file.parentFile?.let { if (!it.exists()) it.mkdirs() }
+        val id = "${SYNTH_PREFIX}${System.currentTimeMillis()}"
+        onSynthDone = { ok -> onDone(ok) }
+        // 合成是异步的，调用本身只表示「开始了」；结果从 listener 回来。
+        val code = t.synthesizeToFile(text, Bundle(), file, id)
         if (code != TextToSpeech.SUCCESS) {
+            onSynthDone = null
             onDone(false)
         }
     }
@@ -147,6 +187,9 @@ class TtsEngine(
         runCatching { tts?.shutdown() }
         tts = null
         isReady = false
+        onSpeakDone = null
+        onSpeakError = null
+        onSynthDone = null
     }
 
     fun localeTag(): String = LocaleList.getDefault().get(0)?.language ?: "zh-CN"
@@ -154,5 +197,6 @@ class TtsEngine(
     private companion object {
         const val TAG = "HomeworkTts"
         const val UTTERANCE_ID = "homework_tts"
+        const val SYNTH_PREFIX = "hw_"
     }
 }

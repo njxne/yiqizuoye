@@ -40,7 +40,7 @@ object AiClient {
     fun modelsUrl(baseUrl: String): String {
         val u = normalizeBase(baseUrl)
         val tail = "/chat/completions"
-        val base = if (u.endsWith(tail)) u.substring(0, u.length - tail.length()) else u
+        val base = if (u.endsWith(tail)) u.substring(0, u.length - tail.length) else u
         return if (base.endsWith("/models")) base
         else if (base.endsWith("/v1")) base + "/models"
         else base + "/v1/models"
@@ -166,11 +166,7 @@ object AiClient {
         val response = client.newCall(request).execute()
         try {
             val code = response.code
-            val body = if (code in 200..299) {
-                response.body?.string().orEmpty()
-            } else {
-                response.errorBody()?.string().orEmpty()
-            }
+            val body = response.body?.string().orEmpty()
             if (code !in 200..299) throw IOException("HTTP $code：" + apiMessage(body))
             return body
         } finally {

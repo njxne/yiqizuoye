@@ -1,7 +1,9 @@
 package me.weishu.kernelsu.homework
 
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.provider.MediaStore
 import android.util.Size
 import android.view.TextureView
 import androidx.camera.core.CameraSelector
@@ -90,7 +92,12 @@ object HomeworkCamera {
             executor.shutdownNow()
         }
 
-        /** 拍照，结果通过 [onUri] 返回（content Uri），失败走 [onError]。 */
+        /**
+         * 拍照，结果通过 [onUri] 返回（content Uri），失败走 [onError]。
+         *
+         * 落盘到 MediaStore 而不是 cacheDir，这样取到的 content Uri 可以跨进程传给
+         * [FloatingWindowService]，Service 里再自己解码。
+         */
         fun takePicture(onUri: (Uri?) -> Unit, onError: (String) -> Unit) {
             val cap = imageCapture
             if (cap == null || !isReady) {
@@ -98,20 +105,28 @@ object HomeworkCamera {
                 return
             }
             val name = "hw_${System.currentTimeMillis()}.jpg"
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            }
             val options = ImageCapture.OutputFileOptions.Builder(
                 context.contentResolver,
-                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                name,
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                values,
             ).build()
-            cap.takePicture(executor, object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    onUri(output.savedUri)
-                }
+            cap.takePicture(
+                options,
+                executor,
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        onUri(output.savedUri)
+                    }
 
-                override fun onError(exc: ImageCaptureException) {
-                    onError(exc.message ?: "拍照失败")
-                }
-            }, options)
+                    override fun onError(exc: ImageCaptureException) {
+                        onError(exc.message ?: "拍照失败")
+                    }
+                },
+            )
         }
     }
 }

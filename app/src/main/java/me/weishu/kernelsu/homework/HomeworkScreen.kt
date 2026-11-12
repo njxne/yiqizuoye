@@ -188,7 +188,6 @@ fun HomeworkScreen(onBack: () -> Unit) {
                         Button(
                             enabled = picked.isNotEmpty() && !solving,
                             onClick = {
-                                if (picked.isEmpty() || solving) return@Row
                                 solving = true
                                 answer = null
                                 say("正在让 AI 看题…")
@@ -298,7 +297,7 @@ fun HomeworkScreen(onBack: () -> Unit) {
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                            DropdownMenu(showModelMenu) {
+                            DropdownMenu(showModelMenu, onDismissRequest = { showModelMenu = false }) {
                                 models.forEach {
                                     DropdownMenuItem(
                                         text = { Text(it) },
@@ -341,7 +340,7 @@ fun HomeworkScreen(onBack: () -> Unit) {
                             ) {
                                 Text(grade, modifier = Modifier.padding(12.dp))
                             }
-                            DropdownMenu(gradeMenuOpen) {
+                            DropdownMenu(gradeMenuOpen, onDismissRequest = { gradeMenuOpen = false }) {
                                 Prompt.GRADES.forEach { g ->
                                     DropdownMenuItem(
                                         text = { Text(g) },
@@ -363,7 +362,7 @@ fun HomeworkScreen(onBack: () -> Unit) {
                             ) {
                                 Text(subject, modifier = Modifier.padding(12.dp))
                             }
-                            DropdownMenu(subjectMenuOpen) {
+                            DropdownMenu(subjectMenuOpen, onDismissRequest = { subjectMenuOpen = false }) {
                                 Prompt.SUBJECTS.forEach { s ->
                                     DropdownMenuItem(
                                         text = { Text(s) },
@@ -413,23 +412,23 @@ fun HomeworkScreen(onBack: () -> Unit) {
                         Spacer(Modifier.width(8.dp))
                         Button(
                             onClick = {
-                                if (!MicInjector.hasRoot()) {
-                                    say("没有 root，声音只能从扬声器出来")
-                                    return@Row
-                                }
-                                Thread {
-                                    val file = File(context.filesDir, "mic_test.wav")
-                                    tts.awaitReady(5000)
-                                    tts.synthesizeToFile("麦克风测试") { ok ->
-                                        if (ok) {
-                                            MicInjector.injectAsync(context, file) { r ->
-                                                say(r.message)
+                                if (MicInjector.hasRoot()) {
+                                    Thread {
+                                        val file = File(context.filesDir, "mic_test.wav")
+                                        tts.awaitReady(5000)
+                                        tts.synthesizeToFile("麦克风测试", file) { ok ->
+                                            if (ok) {
+                                                MicInjector.injectAsync(context, file) { r ->
+                                                    say(r.message)
+                                                }
+                                            } else {
+                                                say("合成失败")
                                             }
-                                        } else {
-                                            say("合成失败")
                                         }
-                                    }
-                                }.start()
+                                    }.start()
+                                } else {
+                                    say("没有 root，声音只能从扬声器出来")
+                                }
                             },
                         ) { Text("测试麦克风注入") }
                     }
@@ -502,9 +501,10 @@ fun HomeworkScreen(onBack: () -> Unit) {
                             },
                         ) { Text("安装") }
                     }
-                    if (updateText != null) {
+                    val text = updateText
+                    if (text != null) {
                         Spacer(Modifier.height(8.dp))
-                        Text(updateText, style = MaterialTheme.typography.bodySmall)
+                        Text(text, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

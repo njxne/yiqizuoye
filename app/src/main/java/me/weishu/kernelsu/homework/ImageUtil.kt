@@ -29,30 +29,30 @@ object ImageUtil {
     /** 解码并按最长边缩放到 maxSide。 */
     fun decode(context: Context, uri: Uri, maxSide: Int): Bitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        contentResolver(context, uri).use { in ->
-            BitmapFactory.decodeStream(in, null, bounds)
-        }
+        val in0 = context.contentResolver.openInputStream(uri)
+            ?: throw IOException("打不开图片")
+        in0.use { input -> BitmapFactory.decodeStream(input, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
             throw IOException("图片读不出来")
         }
         // inSampleSize 只能取 2 的幂，直接套会让 3000px 的图被砍到 1500px 再拉回 2048，
         // 白白损失细节。所以降到「略大于目标」即可，剩下的交给下面高质量缩放。
         var sample = 1
-        var max = maxOf(bounds.outWidth, bounds.outHeight)
-        while (max / (sample * 2) >= maxSide) sample *= 2
+        var side = maxOf(bounds.outWidth, bounds.outHeight)
+        while (side / (sample * 2) >= maxSide) sample *= 2
 
         val opt = BitmapFactory.Options().apply { inSampleSize = sample }
-        val bm = contentResolver(context, uri).use { in ->
-            BitmapFactory.decodeStream(in, null, opt)
-        } ?: throw IOException("图片解码失败")
+        val bm = context.contentResolver.openInputStream(uri)
+            ?.use { input -> BitmapFactory.decodeStream(input, null, opt) }
+            ?: throw IOException("图片解码失败")
 
         val m = maxOf(bm.width, bm.height)
         return if (m > maxSide) {
             val s = maxSide / m.toFloat()
             val scaled = Bitmap.createScaledBitmap(
                 bm,
-                max(1, (bm.width * s).toInt().coerceAtLeast(1)),
-                max(1, (bm.height * s).toInt().coerceAtLeast(1)),
+                maxOf(1, (bm.width * s).toInt().coerceAtLeast(1)),
+                maxOf(1, (bm.height * s).toInt().coerceAtLeast(1)),
                 true
             )
             if (scaled != bm) bm.recycle()
@@ -106,8 +106,8 @@ object ImageUtil {
         val s = side / m.toFloat()
         return Bitmap.createScaledBitmap(
             src,
-            max(1, (src.width * s).toInt().coerceAtLeast(1)),
-            max(1, (src.height * s).toInt().coerceAtLeast(1)),
+            maxOf(1, (src.width * s).toInt().coerceAtLeast(1)),
+            maxOf(1, (src.height * s).toInt().coerceAtLeast(1)),
             true
         )
     }
@@ -131,9 +131,7 @@ object ImageUtil {
         null
     }
 
-    private fun contentResolver(context: Context, uri: Uri): InputStream {
-        val in0 = context.contentResolver.openInputStream(uri)
-            ?: throw IOException("打不开图片")
-        return in0
-    }
+    /** 打开图片流；失败抛 [IOException]。 */
+    fun open(context: Context, uri: Uri): InputStream =
+        context.contentResolver.openInputStream(uri) ?: throw IOException("打不开图片")
 }

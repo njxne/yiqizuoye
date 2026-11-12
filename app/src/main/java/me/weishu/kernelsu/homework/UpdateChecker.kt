@@ -176,12 +176,14 @@ object UpdateChecker {
             FileOutputStream(target).use { out ->
                 val buf = ByteArray(64 * 1024)
                 var read = 0L
-                while (true) {
-                    val n = body.read(buf)
-                    if (n < 0) break
-                    out.write(buf, 0, n)
-                    read += n
-                    onProgress(read, total)
+                body.source().use { src ->
+                    while (true) {
+                        val n = src.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        read += n
+                        onProgress(read, total)
+                    }
                 }
             }
         } finally {
@@ -189,8 +191,10 @@ object UpdateChecker {
         }
         // apk 本质是 zip，开头必须是 PK。
         val head = ByteArray(2)
-        java.io.FileInputStream(target).use { it.read(head) }
-        if (head[0] != 'P'.code || head[1] != 'K'.code) {
+        java.io.FileInputStream(target).use { ins ->
+            if (ins.read(head) < 2) throw IOException("下载到的不是 apk")
+        }
+        if (head[0].toInt() != 'P'.code || head[1].toInt() != 'K'.code) {
             throw IOException("下载到的不是 apk")
         }
     }
@@ -198,8 +202,7 @@ object UpdateChecker {
     private fun execute(request: Request): String {
         val response = apiClient.newCall(request).execute()
         try {
-            val body = if (response.isSuccessful) response.body?.string().orEmpty()
-            else response.errorBody()?.string().orEmpty()
+            val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code}：$body")
             }

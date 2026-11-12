@@ -15,7 +15,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="56dp"
-        android:background="@android:color/rgba(0, 0, 0, 160)"
+        android:background="#CC000000"
         android:paddingHorizontal="16dp"
         android:paddingVertical="6dp"
         android:textColor="@android:color/white"
