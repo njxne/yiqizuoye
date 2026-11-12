@@ -62,7 +62,7 @@ App 里的「检查更新」读 `repos/{repo}/releases/latest`，没有 Release 
 3. 答题正确统计（App 内计数，保存本地）✅
 4. 应用内更新（GitHub 仓库 + 镜像源下载）✅
 5. 推送到 GitHub 触发 CI 远程编译，下载产物验证 ✅
-6. 体验官走查：以用户视角体验，找出影响体验的问题，给出建议并更新 ✅（跑了两轮，见下）
+6. 体验官走查：以用户视角体验，找出影响体验的问题，给出建议并更新 ✅（跑了三轮，见下）
 7. 能脱离设备验证的部分做真实单测 ✅（`Prompt` / `AnswerSplitter` 是纯 Kotlin，用 kotlinc 编译成 jar 真跑，16 项断言全过；
    这两个类故意不引 Android 依赖就是为了这一步）
 
@@ -129,20 +129,62 @@ App 里的「检查更新」读 `repos/{repo}/releases/latest`，没有 Release 
 
 ## 结构精简（第三轮，已做）
 
-用户原话：引擎控件要用 KSU 开源仓库同款，**不要自己模仿写一套**；KSU 管理器自己那堆功能不该留在这个作业 App 里。
+用户原话：引擎控件要用 KSU 开源仓库同款，**不要自己模仿写一套**；KSU 管理器自己那堆功能不该留在这个作业 App 里；
+「一堆没用的没删，堆在那里」「超级用户分栏怎么还在」。
+
 本轮把 KSU 管理器自带的功能界面**整块删掉**，只留它的引擎和控件库：
 
-- **删掉的分栏**：首页（管理器主页）、超级用户、模块 —— 底栏原来 4 个分栏，现在只剩 `作业 / 设置`。
+- **底栏（含 Material 版）**：原来 4 个分栏（首页 / 超级用户 / 模块 / 设置），现在 **Miuix 和 Material 两套底栏、
+  两套侧边导航栏**都只剩 `作业 / 设置`。
+  坑：**material-icons-extended 的图标必须逐个显式 `import`**（光写 `Icons.Rounded.X` 不 import 就解析不到，
+  `School` / `Description` 都踩过）；`BottomBarMaterial.kt` / `NavigationRailMaterial.kt` 是 Miuix 之外的第二套，
+  只改 Miuix 会漏。
 - **删掉的界面包**（`ui/screen/` 下）：`home` `superuser` `module` `modulerepo` `install`
   `executemoduleaction` `sulog` `scriptrun` `appprofile` `template` `templateeditor` `colorpalette`，
-  以及 `flash` 的 4 个界面文件（`FlashUtils.kt` 里被卸载弹窗用到的 `FlashIt` / `UninstallType` 保留）。
+  以及 `flash/` 整个包。
 - **删掉的连带代码**：`ui/webui/` 整个包（WebView 模块管理界面，只被主题用到的 `MonetColorsProvider`
-  一并去掉）、`IntentDispatcher.kt`、`UidGroupUtils.kt`、`module/Shortcut.kt`、
-  8 个 ViewModel（Home / Module / ModuleRepo / ScriptRun / Sulog / Template / SuperUser / ModuleRepoDetail）、
-  4 个 Repository（ModuleRepo / SuperUser / Template 及其 Impl）、`AndroidManifest.xml` 里的 `WebUIActivity`。
-- **保留**：KSU 引擎（`Natives` / `data/` / `KernelSUApplication`）、控件库（`ui/component/`、`ui/theme/`）、
-  设置页、关于页、`homework/` 全部。
-- 设置页里「主题」「应用资料模板」两项因为跳转目标被删了，本轮先摘掉；**剩下的 root / 内核开关还在，待下轮清理**。
+  一并去掉）、`IntentDispatcher.kt`、`UidGroupUtils.kt`、`module/Shortcut.kt`、`util/Serialization.kt`、
+  `util/Downloader.kt`、`component/profile/` 整个包、8 个 ViewModel、4 个 Repository、
+  `AndroidManifest.xml` 里的 `WebUIActivity`。
+- **删掉的 KSU 管理器组件**（`ui/component/` 下，删前逐个 grep 确认全项目零引用）：`rebootlistpopup/`
+  `choosekmidialog/` `statustag/`，以及随之变死的 `MenuPositionProvider` `KsuValidCheck` `AppIconImage`
+  `KeyEventBlocker` `ObserveAsEvents` `ScrollToTop` `dialog/DownloadDialog`，还有卸载弹窗
+  `uninstalldialog/` 三个文件、发日志的 `miuix/SendLogDialog.kt` 和 `material/SendLogBottomSheet.kt`。
+- **设置页**：删掉 SU 兼容、内核卸载、SELinux 隐藏、SU 日志、ADB root、Shell SU、软重启、模块默认卸载、
+  Web 调试、自动越狱、模块更新检查、卸载、发送日志 —— 现在只剩「检查更新 / 界面风格 / 关于」。
+- **保留**：KSU 引擎（`Natives` / `data/` / `KernelSUApplication`）、控件库（`ui/component/` 里剩下的
+  miuix / liquidglass / material / markdown / dialog、`ui/theme/`）、关于页、`homework/` 全部。
+- **改名**：应用名从 `KernelSU` 改成 `一起作业`（`KSU_NAME` 默认值），release 资产名从
+  `KernelSU_Android9-release.apk` 改成 `yiqizuoye-release.apk`（`archivesName`）。
+  **包名没动**（还是 `me.weishu.kernelsu`）——改包名会断掉覆盖安装和 FileProvider authority，得不偿失。
+  `UpdateChecker` 是动态读 release 资产名的，所以改名不影响应用内更新。
+
+## 体验官走查记录（第三轮，已修）
+
+KSU 管理器那堆东西清完之后，又从「用户第一次装这个 App 会发生什么」走了一遍：
+
+1. **Material 版底栏还在显示 KSU 的分栏**（最打脸的一处）。上一轮只改了 Miuix 版底栏，
+   `BottomBarMaterial.kt` / `NavigationRailMaterial.kt` 里还是 `home / superuser / module / settings` 四个，
+   而 `MainPagerConfig.PAGE_COUNT` 已经是 2 —— 用户一切 Material 主题就看到「超级用户」分栏，点第 3、4 个还会越界。
+   两套底栏 + 两套侧边导航栏现在都只剩 `作业 / 设置`。
+2. **设置页塞满了 KSU 的 root / 内核开关**。SU 兼容、内核卸载、SELinux 隐藏、SU 日志、ADB root、
+   Shell SU、软重启、模块默认卸载、Web 调试、自动越狱、模块更新检查、卸载、发送内核日志 ——
+   一个作业 App 里全是看不懂的东西。现在只剩「检查更新 / 界面风格 / 关于」。
+   连带删掉的：卸载弹窗、发日志弹窗，以及它们变死代码后全项目零引用的一批组件
+   （`rebootlistpopup` `choosekmidialog` `statustag` `MenuPositionProvider` `KsuValidCheck` `AppIconImage`
+   `KeyEventBlocker` `ObserveAsEvents` `ScrollToTop` `dialog/DownloadDialog`）。
+3. **应用名和 APK 名还是「KernelSU」**。装到桌面叫 KernelSU、下载下来叫 `KernelSU_Android9-release.apk`，
+   跟「一起作业」是两个东西。应用名改成 `一起作业`，release 资产名改成 `yiqizuoye-release.apk`。
+   包名没动（改了会断覆盖安装和 FileProvider authority）。
+4. **「API Key（可留空）」是误导**。默认接口 `ai.murk.top` 没 Key 直接 401，留空用不了。改成「多数接口必填」。
+5. **首页打开是一大长串设置，没有上手引导**。加了一张「三步开始」卡片：填 AI 设置 → 开悬浮窗 → 回桌面点「拍」。
+
+## 体验官走查记录（第四轮，待做）
+
+- **作业页本身用的是普通 Material3，不是 KSU 的 miuix 控件**。App 外壳（底栏、双主题、设置页、关于页）是 KSU 同款，
+  但 `HomeworkScreen.kt`（763 行）是 `androidx.compose.material3.Card/Button/OutlinedTextField` 手写的，
+  跟 miuix 的观感明显不一致 —— 用户要的是「界面也要同款」。这是下一轮最该做、也是最大的一块。
+- 悬浮窗是原生 `View` 搭的（KSU 没有悬浮窗，没有可抄的控件），这个不算违背「同款」。
 
 ## 已知限制（别假装能跑）
 

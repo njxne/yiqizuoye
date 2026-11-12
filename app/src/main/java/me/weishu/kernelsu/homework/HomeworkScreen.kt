@@ -163,6 +163,18 @@ fun HomeworkScreen(onBack: () -> Unit) {
         ) {
             Spacer(Modifier.height(8.dp))
 
+            // ---------- 上手引导 ----------
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("三步开始", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text("1. 在下面「AI 设置」里填好接口地址和 API Key", style = MaterialTheme.typography.bodySmall)
+                    Text("2. 在「悬浮窗」里点「开启悬浮窗」并授权", style = MaterialTheme.typography.bodySmall)
+                    Text("3. 回桌面点悬浮窗的「拍」，拍完点「解题」", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+
             // ---------- 统计 ----------
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
@@ -348,7 +360,7 @@ fun HomeworkScreen(onBack: () -> Unit) {
                             apiKey = it
                             HomeworkStore.set(context, HomeworkStore.K_KEY, it)
                         },
-                        label = { Text("API Key（可留空）") },
+                        label = { Text("API Key（多数接口必填）") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
