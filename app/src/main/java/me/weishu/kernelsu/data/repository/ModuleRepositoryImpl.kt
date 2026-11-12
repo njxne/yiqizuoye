@@ -7,7 +7,6 @@ import me.weishu.kernelsu.data.model.ModuleUpdateInfo
 import me.weishu.kernelsu.ksuApp
 import me.weishu.kernelsu.ui.util.isNetworkAvailable
 import me.weishu.kernelsu.ui.util.listModules
-import me.weishu.kernelsu.ui.util.module.sanitizeVersionString
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -74,7 +73,7 @@ class ModuleRepositoryImpl : ModuleRepository {
 
             val updateJson = JSONObject(result)
             var version = updateJson.optString("version", "")
-            version = sanitizeVersionString(version)
+            version = version.replace(Regex("[^0-9.]"), "")
             val versionCode = updateJson.optInt("versionCode", 0)
             val zipUrl = updateJson.optString("zipUrl", "")
             val changelog = updateJson.optString("changelog", "")
