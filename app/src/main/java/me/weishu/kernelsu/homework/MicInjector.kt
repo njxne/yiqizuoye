@@ -112,7 +112,7 @@ object MicInjector {
             }
         }
         // 有些内核把 aloop 编进内核了，只是设备节点没列出来；再查一次。
-        findLoopbackCard(shell)
+        return findLoopbackCard(shell)
     }
 
     private fun findLoopbackCard(shell: Shell): Int? {

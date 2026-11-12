@@ -121,40 +121,59 @@ class FloatingHomeworkView(
 
     private val container = FrameLayout(context)
 
-    private var expanded = false
-    private var lastAnswer: String? = null
+    /** 拖动起点，只在 [onInterceptTouchEvent] 里记。 */
+    private var dragStartX = 0
+    private var dragStartY = 0
+    private var dragging = false
 
     init {
         addView(container)
         container.addView(fabView, FrameLayout.LayoutParams(d(64), d(64)))
-        setOnTouchListener(object : OnTouchListener {
-            private var startX = 0
-            private var startY = 0
-            private var moved = false
-
-            override fun onTouch(v: View, event: MotionEvent): Boolean {
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        startX = event.rawX.toInt()
-                        startY = event.rawY.toInt()
-                        moved = false
-                    }
-
-                    MotionEvent.ACTION_MOVE -> {
-                        val dx = event.rawX.toInt() - startX
-                        val dy = event.rawY.toInt() - startY
-                        if (abs(dx) > 4 || abs(dy) > 4) {
-                            moved = true
-                            callback.onMove(dx, dy)
-                        }
-                    }
-
-                    MotionEvent.ACTION_UP -> if (!moved) v.performClick()
-                }
-                return true
-            }
-        })
     }
+
+    /**
+     * 拖动用「拦截」而不是「自己吃掉触摸」。
+     *
+     * 早先给整个 View 挂 `setOnTouchListener` 且恒返回 true，子 View 就永远收不到触摸事件，
+     * 悬浮窗里所有按钮都点不动 —— 这是最致命的体验问题。改成拦截模型：没有超过阈值的拖动
+     * 就放行给子 View，按钮恢复正常。
+     */
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+        if (!dragRegion(event)) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                dragStartX = event.rawX.toInt()
+                dragStartY = event.rawY.toInt()
+                dragging = false
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.rawX.toInt() - dragStartX
+                val dy = event.rawY.toInt() - dragStartY
+                if (abs(dx) > 4 || abs(dy) > 4) {
+                    dragging = true
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_MOVE -> callback.onMove(
+                event.rawX.toInt() - dragStartX,
+                event.rawY.toInt() - dragStartY,
+            )
+
+            MotionEvent.ACTION_UP -> if (!dragging) callback.onExpand()
+        }
+        return true
+    }
+
+    /** 收起时整块都能拖；展开时只有顶部标题条能拖，其余区域留给按钮。 */
+    private fun dragRegion(event: MotionEvent): Boolean =
+        !expanded || event.y <= d(44)
 
     /** 展开 / 收起。 */
     fun setExpanded(value: Boolean) {
@@ -162,10 +181,28 @@ class FloatingHomeworkView(
         expanded = value
         container.removeAllViews()
         if (value) {
-            container.addView(panelView, FrameLayout.LayoutParams(d(310), d(600)))
+            val (w, h) = panelSize()
+            container.addView(panelView, FrameLayout.LayoutParams(w, h))
         } else {
             container.addView(fabView, FrameLayout.LayoutParams(d(64), d(64)))
         }
+    }
+
+    /**
+     * 面板尺寸。
+     *
+     * 面板原先写死 310×600dp，在小屏 / 横屏机器上会直接盖住整个屏幕、把 App 的界面挡得
+     * 严严实实。改成按屏幕尺寸自适应，但留出上下左右的空档，让用户还能点到被盖住的东西。
+     */
+    private fun panelSize(): IntArray {
+        val dm = java.util.DisplayMetrics()
+        val wm = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+        @Suppress("DEPRECATION")
+        val display = wm.defaultDisplay
+        display.getMetrics(dm)
+        val w = minOf(d(310), (dm.widthPixels - d(48)).coerceAtLeast(d(240)))
+        val h = minOf(d(620), (dm.heightPixels - d(140)).coerceAtLeast(d(360)))
+        return intArrayOf(w, h)
     }
 
     fun isExpanded(): Boolean = expanded

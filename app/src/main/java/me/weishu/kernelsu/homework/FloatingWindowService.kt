@@ -213,7 +213,7 @@ class FloatingWindowService : Service() {
             v.setHint("没有相机权限，先点「拍照」会打开全屏相机")
             return
         }
-        val c = camera ?: HomeworkCamera.Controller(applicationContext, cameraOwner, v.previewView)
+        val c = camera ?: HomeworkCamera.Controller(applicationContext, v.previewView)
             .also { camera = it }
         if (!cameraStarted) {
             cameraStarted = true
