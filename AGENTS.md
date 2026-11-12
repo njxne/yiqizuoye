@@ -56,7 +56,9 @@ App 里的「检查更新」读 `repos/{repo}/releases/latest`，没有 Release 
 3. 答题正确统计（App 内计数，保存本地）✅
 4. 应用内更新（GitHub 仓库 + 镜像源下载）✅
 5. 推送到 GitHub 触发 CI 远程编译，下载产物验证 ✅
-6. 体验官走查：以用户视角体验，找出影响体验的问题，给出建议并更新 ✅（第一轮已做，见下）
+6. 体验官走查：以用户视角体验，找出影响体验的问题，给出建议并更新 ✅（跑了两轮，见下）
+7. 能脱离设备验证的部分做真实单测 ✅（`Prompt` / `AnswerSplitter` 是纯 Kotlin，用 kotlinc 编译成 jar 真跑，16 项断言全过；
+   这两个类故意不引 Android 依赖就是为了这一步）
 
 ## 体验官走查记录（第一轮，已修）
 
@@ -78,6 +80,46 @@ App 里的「检查更新」读 `repos/{repo}/releases/latest`，没有 Release 
 8. **本地语音引擎有没有用，用户无从得知**。等 TTS 初始化完直接显示「可用 / 没找到中文语音数据」。
 9. **首页计数卡片缓存了首次结果**，答对题数变了卡片不跟着变。
 10. `Prompt.gradeEssay / writeEssay` 原本是死代码，已接成「作文」卡片（批改 / 生成）。
+
+## 体验官走查记录（第二轮，已修）
+
+第一轮修完又从「用户第一次装这个 App 会发生什么」的角度走了一遍，找出这些**不修就会被骂**的问题：
+
+1. **应用内更新在国内手机上永远「检查失败」**。`UpdateChecker.check()` 只直连 `api.github.com`，
+   镜像源列表只作用于下载。国内直连不通就直接报错，用户以为 App 坏了。
+   改成先直连、不通再走 `gh-proxy.com` 代理 API。**实测**：ghfast.top / ghproxy.net 对
+   `https://api.github.com/...` 路径直接返回 403 `Invalid input.`，只有 gh-proxy.com 能代理（200 + 完整 JSON），
+   所以 API 代理源只有一个，别照抄下载用的那三个。
+2. **点「安装」被静默拒绝**。Android 8+ 没开「安装未知来源」时调起安装页直接失败，用户只看到没反应。
+   加了 `UpdateChecker.canInstall()`（`PackageManager.canRequestPackageInstalls()`），没开就跳
+   `Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES` 并在界面上说明原因。
+3. **麦克风注入写错声卡**。原来列清单用 `tinymix -c $card` 失败后回退到 `tinymix`（默认主板卡 0），
+   但写开关时又用 `-c $card` 指到 aloop 虚拟卡上——那张卡根本没有麦克风源控制项，**等于永远写不进去**。
+   改成先从 `/proc/asound/cards` 里找第一张非 loopback 的主板卡，列清单和写开关都用同一张。
+4. **朗读按钮可能永久卡住**。目标 App 没在录音时，往 `/dev/snd/hw0,0` 写会一直堵在缓冲区上不返回，
+   调用线程挂死，按钮像坏了一样。改成按音频时长算超时（`时长 + 15s`），超时就回退扬声器，
+   不再让用户干等。
+5. **「声音已灌进麦克风」这句话误导**。音频其实已经写完了，再说「去 App 里点开始朗读」，
+   用户照做也听不到。改成明说：要求「一起作业」**正在录音**才收得到，这次没收到就先在那边点开始朗读再回来点一次。
+6. **发版一次 500 就整个 run 标红**。实测 `gh release create` 会偶发 HTTP 500（v30011 那次就是），
+   已经构建好、上传好的 APK 全部作废。拆成「建 release」和「传资产」两步，各自重试
+   （建 3 次、传 5 次）。
+7. **我自己改 workflow 时踩的坑**：给 `--notes` 传多行字符串，续行写成顶格，直接截断了 YAML 的
+   `run: |` 块 → workflow 语法错误 → run 秒失败且**一个 job 都没有**（run 的 `name` 会变成文件路径而不是 `Build`）。
+   已改成单行 `printf`。**教训：改完 workflow 先本地 `python3 -c "import yaml;yaml.safe_load(open(...))"` 校验。**
+8. **相机拍照在 Android 9 上会直接失败**。原来把照片写进 MediaStore（`Images.Media.EXTERNAL_CONTENT_URI`），
+   而 manifest 里没有 `WRITE_EXTERNAL_STORAGE` —— API 28 上写 MediaStore 要这个权限，会抛
+   `SecurityException`，用户点「拍照」只看到一句「拍照失败」。
+   而且写进 MediaStore 的照片**永久留在用户相册里**，越拍越多，App 自己也清不掉。
+   改成写 `cacheDir/hw/` 再经已有的 FileProvider 交出：不用申权限、不污染相册、空间紧张时系统会回收，
+   content Uri 一样能跨进程传给 Service。
+9. **没答案也能点「答对了」，统计被凭空灌水**。悬浮窗里没拍过题就点「答对了」，照样 `+1` 并写一条空记录；
+   主页那边 `onError` 会把 `answer` 设成「出错了：…」，按钮照样可点，同样计入「答对」。
+   悬浮窗加了「答案为空就提示先拍照、不计数」的闸；主页加了 `hasAnswer` 标志（只有 `onAnswer` 才置真），
+   「朗读 / 答对了 / 答错了」在没解出答案时置灰，并显示一句说明。
+
+另外实测确认：`AiClient.DEFAULT_BASE`（`https://ai.murk.top/v1/chat/completions`）这个默认接口地址是**可达**的，
+无 Key 时返回 `401 Invalid token` —— 也就是说默认值能用，用户只需要填自己的 API Key。
 
 ## 已知限制（别假装能跑）
 

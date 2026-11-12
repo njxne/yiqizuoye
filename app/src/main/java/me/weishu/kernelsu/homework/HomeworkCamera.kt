@@ -11,9 +11,11 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -97,8 +99,10 @@ object HomeworkCamera {
         /**
          * 拍照，结果通过 [onUri] 返回（content Uri），失败走 [onError]。
          *
-         * 落盘到 MediaStore 而不是 cacheDir，这样取到的 content Uri 可以跨进程传给
-         * [FloatingWindowService]，Service 里再自己解码。
+         * 落盘到应用缓存目录再经 FileProvider 交出，而不是写 MediaStore：
+         * 一是 Android 9 上写 MediaStore 要 `WRITE_EXTERNAL_STORAGE` 权限，本 App 没申也没必要申；
+         * 二是写 MediaStore 会永久留在用户相册里，越拍越多。缓存目录跟着 App 走，
+         * 空间紧张时系统也会回收，content Uri 一样能跨进程传给 Service。
          */
         fun takePicture(onUri: (Uri?) -> Unit, onError: (String) -> Unit) {
             val cap = imageCapture
@@ -106,22 +110,27 @@ object HomeworkCamera {
                 onError("相机还没准备好")
                 return
             }
-            val name = "hw_${System.currentTimeMillis()}.jpg"
+            val dir = File(context.cacheDir, "hw").apply { if (!exists()) mkdirs() }
+            val file = File(dir, "hw_${System.currentTimeMillis()}.jpg")
+            val uri = try {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            } catch (e: Exception) {
+                onError("取不到文件 Uri：${e.message}")
+                return
+            }
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
             }
             val options = ImageCapture.OutputFileOptions.Builder(
-                context.contentResolver,
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                values,
+                context.contentResolver, uri, values
             ).build()
             cap.takePicture(
                 options,
                 executor,
                 object : ImageCapture.OnImageSavedCallback {
                     override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                        onUri(output.savedUri)
+                        onUri(output.savedUri ?: uri)
                     }
 
                     override fun onError(exc: ImageCaptureException) {

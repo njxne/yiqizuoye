@@ -326,8 +326,14 @@ class FloatingWindowService : Service() {
     // ==================== 统计 ====================
 
     private fun markAnswer(correct: Boolean) {
-        HomeworkStore.markAnswer(this, correct)
         val v = windowView ?: return
+        val text = v.currentAnswer()
+        if (text.isBlank()) {
+            // 没有答案也点「答对了」的话，统计会被凭空灌水。
+            v.setHint("还没有答案，先拍一张让 AI 看")
+            return
+        }
+        HomeworkStore.markAnswer(this, correct)
         val s = HomeworkStore.stats(this)
         v.setStats(s.total, s.correct, s.streak)
         val ctx = this
@@ -335,7 +341,7 @@ class FloatingWindowService : Service() {
             time = System.currentTimeMillis(),
             subject = HomeworkStore.get(ctx, HomeworkStore.K_SUBJECT, HomeworkStore.DEF_SUBJECT),
             grade = HomeworkStore.get(ctx, HomeworkStore.K_GRADE, HomeworkStore.DEF_GRADE),
-            question = v.currentAnswer().take(300),
+            question = text.take(300),
             answer = "",
             correct = correct,
             image = "",

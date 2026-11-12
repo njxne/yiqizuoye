@@ -84,6 +84,8 @@ fun HomeworkScreen(onBack: () -> Unit) {
 
     var picked by remember { mutableStateOf(emptyList<Uri>()) }
     var answer by remember { mutableStateOf<String?>(null) }
+    /** true 表示 answer 里是真正的答案，不是「出错了：…」。用来给「答对了/答错了/朗读」加闸。 */
+    var hasAnswer by remember { mutableStateOf(false) }
     var solving by remember { mutableStateOf(false) }
     var reading by remember { mutableStateOf(false) }
 
@@ -246,17 +248,20 @@ fun HomeworkScreen(onBack: () -> Unit) {
                             onClick = {
                                 solving = true
                                 answer = null
+                                hasAnswer = false
                                 say("正在让 AI 看题…")
                                 HomeworkSolver.solve(
                                     context,
                                     picked,
                                     onAnswer = { ans ->
                                         answer = ans
+                                        hasAnswer = true
                                         solving = false
                                         say("答案出来了")
                                     },
                                     onError = { msg ->
                                         answer = "出错了：$msg"
+                                        hasAnswer = false
                                         solving = false
                                         say("出错了")
                                     },
@@ -271,27 +276,34 @@ fun HomeworkScreen(onBack: () -> Unit) {
                         Text(answer!!, fontFamily = FontFamily.Monospace)
                         Spacer(Modifier.height(10.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Button(onClick = {
-                                if (reading || AnswerReader.isBusy()) {
-                                    AnswerReader.stop(tts)
-                                    reading = false
-                                    say("已停止朗读")
-                                } else {
-                                    reading = true
-                                    readText(answer!!) {
+                            Button(
+                                enabled = hasAnswer,
+                                onClick = {
+                                    if (reading || AnswerReader.isBusy()) {
+                                        AnswerReader.stop(tts)
                                         reading = false
-                                        say("朗读结束")
+                                        say("已停止朗读")
+                                    } else {
+                                        reading = true
+                                        readText(answer!!) {
+                                            reading = false
+                                            say("朗读结束")
+                                        }
                                     }
-                                }
-                            }) { Text("朗读") }
-                            Spacer(Modifier.width(8.dp))
-                            Button(onClick = {
-                                HomeworkStore.markAnswer(context, true)
-                                stats = HomeworkStore.stats(context)
-                                say("记一笔答对")
-                            }) { Text("答对了") }
+                                },
+                            ) { Text("朗读") }
                             Spacer(Modifier.width(8.dp))
                             Button(
+                                enabled = hasAnswer,
+                                onClick = {
+                                    HomeworkStore.markAnswer(context, true)
+                                    stats = HomeworkStore.stats(context)
+                                    say("记一笔答对")
+                                },
+                            ) { Text("答对了") }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                enabled = hasAnswer,
                                 onClick = {
                                     HomeworkStore.markAnswer(context, false)
                                     stats = HomeworkStore.stats(context)
@@ -301,6 +313,13 @@ fun HomeworkScreen(onBack: () -> Unit) {
                                     containerColor = MaterialTheme.colorScheme.secondary
                                 ),
                             ) { Text("答错了") }
+                        }
+                        if (!hasAnswer) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "这道题没解出来，按钮先灰着 —— 不然答对数会被灌水",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }
