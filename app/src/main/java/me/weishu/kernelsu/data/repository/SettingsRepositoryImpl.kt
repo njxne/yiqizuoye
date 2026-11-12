@@ -12,7 +12,6 @@ import me.weishu.kernelsu.Natives
 import me.weishu.kernelsu.ksuApp
 import me.weishu.kernelsu.magica.BootCompletedReceiver
 import me.weishu.kernelsu.ui.UiMode
-import me.weishu.kernelsu.ui.screen.modulerepo.RepoSort
 import me.weishu.kernelsu.ui.util.execKsud
 import me.weishu.kernelsu.ui.util.getFeaturePersistValue
 import me.weishu.kernelsu.ui.util.getFeatureValue
@@ -123,14 +122,8 @@ class SettingsRepositoryImpl : SettingsRepository {
         set(value) = prefs.edit { putBoolean("module_sort_action_first", value) }
 
     override var moduleRepoSortOrder: String
-        get() = RepoSort.fromStored(
-            name = prefs.getString("module_repo_sort", null),
-            legacyOrdinal = if (prefs.contains("module_repo_sort_order")) prefs.getInt("module_repo_sort_order", 0) else null,
-        ).name
-        set(value) = prefs.edit {
-            putString("module_repo_sort", value)
-            remove("module_repo_sort_order")
-        }
+        get() = prefs.getString("module_repo_sort", "") ?: ""
+        set(value) = prefs.edit { putString("module_repo_sort", value) }
 
     override var superuserShowSystemApps: Boolean
         get() = prefs.getBoolean("show_system_apps", false)

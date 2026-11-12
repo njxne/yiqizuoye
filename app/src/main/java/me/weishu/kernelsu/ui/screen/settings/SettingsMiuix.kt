@@ -164,42 +164,6 @@ fun SettingPagerMiuix(
                             selectedIndex = if (uiState.uiMode == UiMode.Material.value) 1 else 0,
                             onSelectedIndexChange = actions.onSetUiModeIndex
                         )
-                        ArrowPreference(
-                            title = stringResource(id = R.string.settings_theme),
-                            summary = stringResource(id = R.string.settings_theme_summary),
-                            startAction = {
-                                Icon(
-                                    Icons.Rounded.Palette,
-                                    modifier = Modifier.padding(end = 6.dp),
-                                    contentDescription = stringResource(id = R.string.settings_theme),
-                                    tint = colorScheme.onBackground
-                                )
-                            },
-                            onClick = actions.onOpenTheme
-                        )
-                    }
-
-                    KsuIsValid {
-                        Card(
-                            modifier = Modifier
-                                .padding(top = 12.dp)
-                                .fillMaxWidth(),
-                        ) {
-                            val profileTemplate = stringResource(id = R.string.settings_profile_template)
-                            ArrowPreference(
-                                title = profileTemplate,
-                                summary = stringResource(id = R.string.settings_profile_template_summary),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Description,
-                                        modifier = Modifier.padding(end = 6.dp),
-                                        contentDescription = profileTemplate,
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                onClick = actions.onOpenProfileTemplate
-                            )
-                        }
                     }
 
                     KsuIsValid {

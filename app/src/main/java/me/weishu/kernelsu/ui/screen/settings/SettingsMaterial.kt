@@ -133,43 +133,8 @@ fun SettingPagerMaterial(
                             onItemSelected = actions.onSetUiModeIndex
                         )
                     }
-                    add {
-                        SegmentedListItem(
-                            onClick = actions.onOpenTheme,
-                            headlineContent = { Text(stringResource(id = R.string.settings_theme)) },
-                            supportingContent = { Text(stringResource(id = R.string.settings_theme_summary)) },
-                            leadingContent = { Icon(Icons.Filled.Palette, stringResource(id = R.string.settings_theme)) },
-                            trailingContent = {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    null
-                                )
-                            }
-                        )
-                    }
                 }
             )
-
-            val profileTemplate = stringResource(id = R.string.settings_profile_template)
-            KsuIsValid {
-                SegmentedColumn(
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
-                    content = listOf {
-                        SegmentedListItem(
-                            onClick = actions.onOpenProfileTemplate,
-                            headlineContent = { Text(profileTemplate) },
-                            supportingContent = { Text(stringResource(id = R.string.settings_profile_template_summary)) },
-                            leadingContent = { Icon(Icons.Filled.Description, profileTemplate) },
-                            trailingContent = {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    null
-                                )
-                            }
-                        )
-                    }
-                )
-            }
 
             KsuIsValid {
                 val suCompatModeItems = listOf(

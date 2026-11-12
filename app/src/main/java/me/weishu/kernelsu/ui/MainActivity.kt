@@ -73,27 +73,13 @@ import me.weishu.kernelsu.ui.component.liquidglass.LiquidGlassBottomBar
 import me.weishu.kernelsu.ui.component.liquidglass.liquidLayerBackdrop
 import me.weishu.kernelsu.ui.component.liquidglass.rememberLiquidLayerBackdrop
 import me.weishu.kernelsu.ui.component.rebootoverlay.RebootOverlay
-import me.weishu.kernelsu.ui.navigation3.IntentDispatcher
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 import me.weishu.kernelsu.ui.navigation3.Navigator
 import me.weishu.kernelsu.ui.navigation3.Route
 import me.weishu.kernelsu.ui.navigation3.rememberNavigator
 import me.weishu.kernelsu.ui.screen.about.AboutScreen
-import me.weishu.kernelsu.ui.screen.appprofile.AppProfileScreen
-import me.weishu.kernelsu.ui.screen.colorpalette.ColorPaletteScreen
-import me.weishu.kernelsu.ui.screen.executemoduleaction.ExecuteModuleActionScreen
 import me.weishu.kernelsu.ui.screen.flash.FlashScreen
-import me.weishu.kernelsu.ui.screen.home.HomePager
-import me.weishu.kernelsu.ui.screen.install.InstallScreen
-import me.weishu.kernelsu.ui.screen.module.ModulePager
-import me.weishu.kernelsu.ui.screen.modulerepo.ModuleRepoDetailScreen
-import me.weishu.kernelsu.ui.screen.modulerepo.ModuleRepoScreen
-import me.weishu.kernelsu.ui.screen.scriptrun.ScriptRunScreen
 import me.weishu.kernelsu.ui.screen.settings.SettingPager
-import me.weishu.kernelsu.ui.screen.sulog.SulogScreen
-import me.weishu.kernelsu.ui.screen.superuser.SuperUserPager
-import me.weishu.kernelsu.ui.screen.template.AppProfileTemplateScreen
-import me.weishu.kernelsu.ui.screen.templateeditor.TemplateEditorScreen
 import me.weishu.kernelsu.ui.theme.KernelSUTheme
 import me.weishu.kernelsu.ui.theme.LocalColorMode
 import me.weishu.kernelsu.ui.theme.LocalEnableBlur
@@ -101,14 +87,11 @@ import me.weishu.kernelsu.ui.theme.LocalEnableFloatingBottomBar
 import me.weishu.kernelsu.ui.theme.LocalEnableFloatingBottomBarBlur
 import me.weishu.kernelsu.ui.theme.LocalEnableNavigationBadge
 import me.weishu.kernelsu.ui.theme.LocalModuleDescriptionMaxLines
-import me.weishu.kernelsu.ui.util.getSuperuserCount
 import me.weishu.kernelsu.ui.util.install
 import me.weishu.kernelsu.ui.util.rememberBlurBackdrop
 import me.weishu.kernelsu.ui.util.rememberContentReady
 import me.weishu.kernelsu.ui.viewmodel.MainActivityViewModel
 import me.weishu.kernelsu.ui.viewmodel.MainPagerConfig
-import me.weishu.kernelsu.ui.viewmodel.ModuleViewModel
-import me.weishu.kernelsu.ui.viewmodel.SuperUserViewModel
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
@@ -199,7 +182,6 @@ class MainActivity : ComponentActivity() {
                 LocalUiMode provides uiMode,
             ) {
                 KernelSUTheme(appSettings = appSettings, uiMode = uiMode) {
-                    IntentDispatcher(intentChannel = intentChannel)
                     val swipeDismiss = if (uiState.enableSwipeDismiss) {
                         if (LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) {
                             NavSwipeDirection.RightToLeft
@@ -209,13 +191,6 @@ class MainActivity : ComponentActivity() {
                     } else {
                         NavSwipeDirection.None
                     }
-                    val flashRoute = navigator.current() as? Route.Flash
-                    var flashBackEnabled by remember(flashRoute) { mutableStateOf(false) }
-                    val scriptRunRoute = navigator.current() as? Route.ScriptRun
-                    var scriptRunBackEnabled by remember(scriptRunRoute) { mutableStateOf(true) }
-                    // Read here, not inside the NavDisplay builder: NavDisplay only rebuilds its entries
-                    // (and their swipeDismiss) when the builder lambda changes, so it must capture the value.
-                    val scriptRunSwipeDismiss = if (scriptRunBackEnabled) swipeDismiss else NavSwipeDirection.None
                     val mainScreenEntry = @Composable {
                         MainScreen(
                             initialPage = selectedMainPage,
@@ -229,56 +204,13 @@ class MainActivity : ComponentActivity() {
                             backStack = navigator.backStack,
                             effects = NavDisplayEffects(cornerClipRadius = rememberNavSystemCornerRadius()),
                             onBack = {
-                                when (val top = navigator.current()) {
-                                    is Route.TemplateEditor -> {
-                                        if (!top.readOnly) {
-                                            navigator.setResult("template_edit", true)
-                                        } else {
-                                            navigator.pop()
-                                        }
-                                    }
-
-                                    else -> navigator.pop()
-                                }
+                                navigator.pop()
                             }) {
                             entry<Route.Main>(swipeDismiss = swipeDismiss) { mainScreenEntry() }
                             entry<Route.About>(swipeDismiss = swipeDismiss) { AboutScreen() }
                             entry<Route.Homework>(swipeDismiss = swipeDismiss) {
                                 me.weishu.kernelsu.homework.HomeworkScreen(onBack = { navigator.pop() })
                             }
-                            entry<Route.Sulog>(swipeDismiss = swipeDismiss) { SulogScreen() }
-                            entry<Route.ColorPalette>(swipeDismiss = swipeDismiss) { ColorPaletteScreen() }
-                            entry<Route.AppProfileTemplate>(swipeDismiss = swipeDismiss) { AppProfileTemplateScreen() }
-                            entry<Route.TemplateEditor>(swipeDismiss = swipeDismiss) { key -> TemplateEditorScreen(key.template, key.readOnly) }
-                            entry<Route.AppProfile>(swipeDismiss = swipeDismiss) { key -> AppProfileScreen(key.uid) }
-                            entry<Route.ModuleRepo>(swipeDismiss = swipeDismiss) { ModuleRepoScreen() }
-                            entry<Route.ModuleRepoDetail>(swipeDismiss = swipeDismiss) { key -> ModuleRepoDetailScreen(key.module) }
-                            entry<Route.Install>(swipeDismiss = swipeDismiss) { InstallScreen() }
-                            entry<Route.Flash>(swipeDismiss = if (flashBackEnabled) swipeDismiss else NavSwipeDirection.None) { key ->
-                                FlashScreen(
-                                    key.flashIt,
-                                    onBackEnabledChange = { enabled ->
-                                        if (navigator.current() == key) flashBackEnabled = enabled
-                                    },
-                                )
-                            }
-                            entry<Route.ExecuteModuleAction>(swipeDismiss = swipeDismiss) { key ->
-                                ExecuteModuleActionScreen(
-                                    key.moduleId,
-                                    key.fromShortcut
-                                )
-                            }
-                            entry<Route.ScriptRun>(swipeDismiss = scriptRunSwipeDismiss) { key ->
-                                ScriptRunScreen(
-                                    key.arg,
-                                    onBackEnabledChange = { enabled ->
-                                        if (navigator.current() == key) scriptRunBackEnabled = enabled
-                                    },
-                                )
-                            }
-                            entry<Route.Home>(swipeDismiss = swipeDismiss) { mainScreenEntry() }
-                            entry<Route.SuperUser>(swipeDismiss = swipeDismiss) { mainScreenEntry() }
-                            entry<Route.Module>(swipeDismiss = swipeDismiss) { mainScreenEntry() }
                             entry<Route.Settings>(swipeDismiss = swipeDismiss) { mainScreenEntry() }
                         }
                     }
@@ -337,60 +269,7 @@ fun MainScreen(
     val interceptPagerGestures = pagerMode == PagerInterceptionMode.CrossAxisInterceptor
     var userScrollEnabled by remember(isFullFeatured) { mutableStateOf(isFullFeatured) }
 
-    val enableNavigationBadge = LocalEnableNavigationBadge.current
-    val badgeEnabled = enableNavigationBadge && isFullFeatured
-    val moduleViewModel = viewModel<ModuleViewModel>()
-    val moduleUiState by moduleViewModel.uiState.collectAsStateWithLifecycle()
-
-    val superUserViewModel = viewModel<SuperUserViewModel>()
-    val grantedUidCount by remember(superUserViewModel) {
-        superUserViewModel.uiState
-            .map { state -> state.groupedApps.count { it.anyAllowSu } }
-            .distinctUntilChanged()
-    }.collectAsStateWithLifecycle(0)
-
-    var startupPreloadStarted by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(isFullFeatured) {
-        if (!isFullFeatured || startupPreloadStarted) {
-            return@LaunchedEffect
-        }
-
-        moduleViewModel.initializePreferences()
-        val moduleState = moduleViewModel.uiState.value
-        if (!moduleState.hasLoaded) {
-            if (!moduleState.isRefreshing) moduleViewModel.fetchModuleList()
-            moduleViewModel.uiState.first { it.hasLoaded }
-        }
-        moduleViewModel.syncModuleUpdateInfo(moduleViewModel.uiState.value.modules)
-
-        val superUserState = superUserViewModel.uiState.value
-        if (!superUserState.hasLoaded) {
-            superUserViewModel.initializePreferences()
-            if (superUserState.isRefreshing) {
-                superUserViewModel.uiState.first { it.hasLoaded }
-            } else {
-                superUserViewModel.loadAppList().join()
-            }
-        }
-
-        startupPreloadStarted = true
-    }
-
-    // Loading the app list just for a badge is too expensive; read the kernel allowlist instead.
-    var superuserCount by remember { mutableIntStateOf(0) }
-    LaunchedEffect(badgeEnabled, grantedUidCount) {
-        superuserCount = if (badgeEnabled) withContext(Dispatchers.IO) { getSuperuserCount() } else 0
-    }
-
-    val navigationBadge = if (badgeEnabled) {
-        NavigationBadgeState(
-            superuserCount = superuserCount,
-            moduleEnabledCount = moduleUiState.modules.count { it.enabled },
-            moduleUpdatableCount = moduleUiState.updateInfo.count { it.value.downloadUrl.isNotBlank() },
-        )
-    } else {
-        NavigationBadgeState()
-    }
+    val navigationBadge = NavigationBadgeState()
     val uiMode = LocalUiMode.current
     val surfaceColor = when (uiMode) {
         UiMode.Material -> MaterialTheme.colorScheme.surface // Blur is not used in Material, this is just a placeholder
@@ -448,10 +327,10 @@ fun MainScreen(
                 ) { page ->
                     val isCurrentPage = page == settledPage
                     when (page) {
-                        0 -> if (contentReady || isCurrentPage) HomePager(navController, bottomInnerPadding, isCurrentPage)
-                        1 -> if (contentReady || isCurrentPage) SuperUserPager(navController, bottomInnerPadding, isCurrentPage)
-                        2 -> if (contentReady || isCurrentPage) ModulePager(bottomInnerPadding, isCurrentPage)
-                        3 -> if (contentReady || isCurrentPage) SettingPager(navController, bottomInnerPadding, isCurrentPage)
+                        0 -> if (contentReady || isCurrentPage) {
+                            me.weishu.kernelsu.homework.HomeworkScreen(onBack = { navController.pop() })
+                        }
+                        1 -> if (contentReady || isCurrentPage) SettingPager(navController, bottomInnerPadding, isCurrentPage)
                     }
                 }
             }

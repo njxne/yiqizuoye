@@ -136,9 +136,7 @@ enum class BottomBarDestination(
     @get:StringRes val label: Int,
     val icon: ImageVector,
 ) {
-    Home(R.string.home, Icons.Rounded.Cottage),
-    SuperUser(R.string.superuser, Icons.Rounded.Security),
-    Module(R.string.module, Icons.Rounded.Extension),
+    Homework(R.string.homework, Icons.Rounded.School),
     Setting(R.string.settings, Icons.Rounded.Settings)
 }
 

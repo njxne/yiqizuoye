@@ -26,11 +26,17 @@ App 里的「检查更新」读 `repos/{repo}/releases/latest`，没有 Release 
 - minSdk = 28（Android 9+），targetSdk / compileSdk = 37。CameraX 用 1.4.x。
 - Release 开了 R8（`isMinifyEnabled = true`），混淆规则只有 `app/proguard-rules.pro` 里那 5 行；
   Compose 和 kotlinx.serialization 靠各自的 consumer rules 保命，**新增用到反射/反射式查找的地方要自己加 keep**。
+- **版本号和「应用内更新」是绑在一起的，别只改一边**。`build.gradle.kts` 的 `getVersionCode()` = `30000 + 提交数`，
+  CI 发版的 tag 用同一个公式（`30000 + git rev-list --count HEAD`）。这样 App 自身的 versionCode 恰好等于
+  它对应那个 release 的 tag 数字，`UpdateChecker.versionCodeOf(tag) > currentVersionCode` 才会**只在真的push了新代码时**为真。
+  `UpdateChecker` 是从 tag 里抠数字比大小的，所以 tag 必须形如 `v30014` —— 别加 `-beta` 之类的后缀，
+  也别另起一套数字，否则应用内更新要么永远不提示、要么永远提示有新版。
 
 ## 代码结构
 
-- 底座 UI 壳（`ui/`、`ui/theme/`、`ui/component/`、`ui/navigation3/`）：KSU 管理器原样保留，
-  双主题（Miuix / Material）、液态玻璃底栏、路由都在。
+- 底座 UI 壳（`ui/theme/`、`ui/component/`、`ui/navigation3/`）：**只保留 KSU 的引擎与控件库**
+  （miuix / liquidglass / material 组件、双主题、液态玻璃底栏），**KSU 管理器自己的功能界面已全部删除**。
+- 底栏只剩两个分栏：**作业 / 设置**；打开 App 直接是作业页。详见下文「结构精简（第三轮）」。
 - 新增作业功能：
   - `homework/Prompt.kt` — 拍题 / 批改作文 / 生成作文提示词（按年级 → 学段分支，自动定字数）
   - `homework/HomeworkSolver.kt` — 拍题 → AI 的链路
@@ -120,6 +126,23 @@ App 里的「检查更新」读 `repos/{repo}/releases/latest`，没有 Release 
 
 另外实测确认：`AiClient.DEFAULT_BASE`（`https://ai.murk.top/v1/chat/completions`）这个默认接口地址是**可达**的，
 无 Key 时返回 `401 Invalid token` —— 也就是说默认值能用，用户只需要填自己的 API Key。
+
+## 结构精简（第三轮，已做）
+
+用户原话：引擎控件要用 KSU 开源仓库同款，**不要自己模仿写一套**；KSU 管理器自己那堆功能不该留在这个作业 App 里。
+本轮把 KSU 管理器自带的功能界面**整块删掉**，只留它的引擎和控件库：
+
+- **删掉的分栏**：首页（管理器主页）、超级用户、模块 —— 底栏原来 4 个分栏，现在只剩 `作业 / 设置`。
+- **删掉的界面包**（`ui/screen/` 下）：`home` `superuser` `module` `modulerepo` `install`
+  `executemoduleaction` `sulog` `scriptrun` `appprofile` `template` `templateeditor` `colorpalette`，
+  以及 `flash` 的 4 个界面文件（`FlashUtils.kt` 里被卸载弹窗用到的 `FlashIt` / `UninstallType` 保留）。
+- **删掉的连带代码**：`ui/webui/` 整个包（WebView 模块管理界面，只被主题用到的 `MonetColorsProvider`
+  一并去掉）、`IntentDispatcher.kt`、`UidGroupUtils.kt`、`module/Shortcut.kt`、
+  8 个 ViewModel（Home / Module / ModuleRepo / ScriptRun / Sulog / Template / SuperUser / ModuleRepoDetail）、
+  4 个 Repository（ModuleRepo / SuperUser / Template 及其 Impl）、`AndroidManifest.xml` 里的 `WebUIActivity`。
+- **保留**：KSU 引擎（`Natives` / `data/` / `KernelSUApplication`）、控件库（`ui/component/`、`ui/theme/`）、
+  设置页、关于页、`homework/` 全部。
+- 设置页里「主题」「应用资料模板」两项因为跳转目标被删了，本轮先摘掉；**剩下的 root / 内核开关还在，待下轮清理**。
 
 ## 已知限制（别假装能跑）
 

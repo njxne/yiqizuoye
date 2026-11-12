@@ -9,7 +9,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowInsetsControllerCompat
-import me.weishu.kernelsu.ui.webui.MonetColorsProvider
 
 @Composable
 fun MaterialKernelSUTheme(
@@ -45,7 +44,6 @@ fun MaterialKernelSUTheme(
         motionScheme = MotionScheme.expressive(),
         typography = Typography,
         content = {
-            MonetColorsProvider.UpdateCss(colorScheme)
             content()
         }
     )
