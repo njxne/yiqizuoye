@@ -9,7 +9,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -18,7 +17,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun HomeworkEntryCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val stats = remember { HomeworkStore.stats(context) }
+    // 不缓存：每次重组都读一次 SharedPreferences，答对计数变了卡片立刻跟着变。
+    val stats = HomeworkStore.stats(context)
 
     Card(onClick = onClick, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
