@@ -142,8 +142,10 @@ class CameraActivity : ComponentActivity() {
             finish()
             return
         }
+        val out = ArrayList<Parcelable>(uris.size)
+        uris.forEach { out.add(it) }
         val bundle = Bundle().apply {
-            putParcelableArrayList(EXTRA_URIS, ArrayList(uris))
+            putParcelableArrayList(EXTRA_URIS, out)
         }
         val r = receiver
         if (r != null) {
