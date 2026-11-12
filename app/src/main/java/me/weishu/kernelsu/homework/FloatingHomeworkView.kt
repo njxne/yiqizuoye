@@ -251,7 +251,7 @@ class FloatingHomeworkView(
     fun setAnswer(text: String) {
         lastAnswer = text
         // 一份作业可能有多题，按 AI 给出的 `#第N题` 标记切开，逐题显示、逐题朗读。
-        chunks = HomeworkSolver.splitAnswer(text)
+        chunks = AnswerSplitter.split(text)
         chunkIndex = 0
         answerView.text = chunks.firstOrNull().orEmpty()
         renderChunk()

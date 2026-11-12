@@ -33,7 +33,8 @@ App 里的「检查更新」读 `repos/{repo}/releases/latest`，没有 Release 
   双主题（Miuix / Material）、液态玻璃底栏、路由都在。
 - 新增作业功能：
   - `homework/Prompt.kt` — 拍题 / 批改作文 / 生成作文提示词（按年级 → 学段分支，自动定字数）
-  - `homework/HomeworkSolver.kt` — 拍题 → AI 的链路，含 `splitAnswer()` 按 `#第N题` 切题
+  - `homework/HomeworkSolver.kt` — 拍题 → AI 的链路
+  - `homework/AnswerSplitter.kt` — 把答案按 `#第N题` 切成单题（纯 Kotlin，无 Android 依赖，便于脱离设备跑测试）
   - `homework/ImageUtil.kt` — 图片解码 / 压缩 / 缩略图（长边 2048、质量自适应）
   - `homework/AiClient.kt` — OpenAI 兼容 chat/completions + models 客户端（OkHttp）
   - `homework/HomeworkStore.kt` — 设置 + 答题统计 + 历史（SharedPreferences / JSON）
