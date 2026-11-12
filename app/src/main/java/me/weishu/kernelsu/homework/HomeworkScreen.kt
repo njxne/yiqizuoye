@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.ResultReceiver
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,12 +22,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -35,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,8 +93,53 @@ fun HomeworkScreen(onBack: () -> Unit) {
 
     val tts = remember { TtsEngine(context.applicationContext).also { it.init() } }
 
+    // 本地语音引擎到底能不能用，得等初始化完才知道，直接告诉用户，别让人白点。
+    var ttsReady by remember { mutableStateOf(false) }
+    var ttsLocal by remember { mutableStateOf(false) }
+
+    var showAppPicker by remember { mutableStateOf(false) }
+    var installedApps by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+
+    var essayTopic by remember { mutableStateOf(HomeworkStore.get(context, HomeworkStore.K_ESSAY_TOPIC)) }
+    var essayResult by remember { mutableStateOf<String?>(null) }
+    var essayBusy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        tts.awaitReady(5000)
+        ttsReady = true
+        ttsLocal = tts.hasLocalEngine
+    }
+
     fun say(msg: String) {
         note = msg
+    }
+
+    /**
+     * 朗读一段文字：先试着灌进目标 App 的麦克风，灌不进去就从扬声器念出来。
+     *
+     * 主页和悬浮窗以前各写一套，主页的朗读只会从扬声器念，用户点完发现「一起作业」那边
+     * 没声音，就会以为功能坏了。现在统一走 [AnswerReader]。
+     */
+    fun readText(text: String, onDone: () -> Unit = { say("朗读结束") }) {
+        if (AnswerReader.isBusy()) {
+            AnswerReader.stop(tts)
+            say("已停止朗读")
+            return
+        }
+        val accepted = AnswerReader.read(context, tts, text, object : AnswerReader.Listener {
+            override fun onStart() {
+                say("朗读中…")
+            }
+
+            override fun onDone() {
+                onDone()
+            }
+
+            override fun onError(message: String) {
+                say(message)
+            }
+        })
+        if (!accepted) say("这次没接上朗读")
     }
 
     ExpressiveScaffold(
@@ -142,13 +191,16 @@ fun HomeworkScreen(onBack: () -> Unit) {
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Button(onClick = {
-                            if (overlayGranted) {
+                            // 权限可能刚在设置里开过，点的时候现查一遍，别认准进来时那一次的结果。
+                            val granted = FloatingWindowService.hasOverlayPermission(context)
+                            overlayGranted = granted
+                            if (granted) {
                                 FloatingWindowService.start(context)
                                 HomeworkStore.setBool(context, HomeworkStore.K_FLOAT, true)
                                 floatOn = true
                                 say("悬浮窗已开启，去桌面点那个「拍」按钮")
                             } else {
-                                say("先到系统设置里打开悬浮窗权限")
+                                openOverlaySettings(context) { say("打不开权限页，请手动去系统设置里开") }
                             }
                         }) { Text("开启悬浮窗") }
                         Spacer(Modifier.width(8.dp))
@@ -163,6 +215,10 @@ fun HomeworkScreen(onBack: () -> Unit) {
                                 containerColor = MaterialTheme.colorScheme.secondary
                             ),
                         ) { Text("关闭") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = {
+                            openOverlaySettings(context) { say("打不开权限页，请手动去系统设置里开") }
+                        }) { Text("去开权限") }
                         Spacer(Modifier.width(8.dp))
                         Text(if (floatOn) "开" else "关", style = MaterialTheme.typography.bodySmall)
                     }
@@ -216,23 +272,16 @@ fun HomeworkScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(10.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Button(onClick = {
-                                if (reading) {
-                                    tts.stop()
+                                if (reading || AnswerReader.isBusy()) {
+                                    AnswerReader.stop(tts)
                                     reading = false
-                                    say("已停止")
+                                    say("已停止朗读")
                                 } else {
                                     reading = true
-                                    say("朗读中…")
-                                    tts.speak(answer!!, object : TtsEngine.Listener {
-                                        override fun onDone() {
-                                            reading = false
-                                        }
-
-                                        override fun onError(message: String) {
-                                            reading = false
-                                            say(message)
-                                        }
-                                    })
+                                    readText(answer!!) {
+                                        reading = false
+                                        say("朗读结束")
+                                    }
                                 }
                             }) { Text("朗读") }
                             Spacer(Modifier.width(8.dp))
@@ -386,7 +435,14 @@ fun HomeworkScreen(onBack: () -> Unit) {
                     Text("朗读", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "朗读用系统本地语音。先点「朗读测试」听一下，再试着把声音灌进下面这个 App 的麦克风。",
+                        "朗读用系统本地语音，不联网。点「朗读测试」先听一下，再试着把声音灌进下面这个 App 的麦克风。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (!ttsReady) "本地语音引擎：正在准备…"
+                        else if (ttsLocal) "本地语音引擎：可用（离线，不用联网）"
+                        else "本地语音引擎：没找到中文语音数据，朗读多半念不出来，去系统设置里装一个离线语音引擎再试",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(10.dp))
@@ -397,40 +453,116 @@ fun HomeworkScreen(onBack: () -> Unit) {
                             HomeworkStore.set(context, "target_package", it)
                             MicInjector.targetPackage = it
                         },
-                        label = { Text("目标 App 包名") },
+                        label = { Text("目标 App 包名（声音灌给谁）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Button(
+                            onClick = {
+                                val pm = context.packageManager
+                                installedApps = pm.getInstalledApplications(0)
+                                    .map { it.packageName to (it.loadLabel(pm) as String) }
+                                    .sortedBy { it.second }
+                                showAppPicker = true
+                            },
+                        ) { Text("从已装应用里挑") }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (MicInjector.hasRoot()) "root：有"
+                            else "root：没有（声音只能从扬声器出来）",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = {
+                            readText("朗读测试：今天天气很好")
+                        }) { Text("朗读测试") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (!MicInjector.hasRoot()) {
+                                    say("没有 root，声音只能从扬声器出来")
+                                    return@Button
+                                }
+                                if (AnswerReader.isBusy()) {
+                                    say("正在朗读别的内容，先等它读完")
+                                    return@Button
+                                }
+                                readText("麦克风测试：这句话是给目标 App 的麦克风听的") {
+                                    say("麦克风测试开始了，去目标 App 里点「开始朗读」")
+                                }
+                            },
+                        ) { Text("测试麦克风注入") }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+
+            // ---------- 作文 ----------
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("作文", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "拍下作文本，可以「批改」也可以「生成」。生成时把题干写在下面的框里，"
+                            + "提示词会按年级自动定字数。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = essayTopic,
+                        onValueChange = {
+                            essayTopic = it
+                            HomeworkStore.set(context, HomeworkStore.K_ESSAY_TOPIC, it)
+                        },
+                        label = { Text("作文题干（生成时用）") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = {
-                            Thread {
-                                tts.awaitReady(5000)
-                                tts.speak("朗读测试：今天天气很好")
-                            }.start()
-                        }) { Text("朗读测试") }
+                        Button(
+                            enabled = picked.isNotEmpty() && !essayBusy,
+                            onClick = {
+                                essayResult = null
+                                essayBusy = true
+                                say("正在批改作文…")
+                                HomeworkSolver.solve(
+                                    context,
+                                    picked,
+                                    system = Prompt.gradeEssay(grade),
+                                    onAnswer = { essayResult = it; essayBusy = false; say("批改结果出来了") },
+                                    onError = { msg -> essayResult = "出错了：$msg"; essayBusy = false; say("出错了") },
+                                )
+                            },
+                        ) { Text("批改作文") }
                         Spacer(Modifier.width(8.dp))
                         Button(
+                            enabled = picked.isNotEmpty() && !essayBusy,
                             onClick = {
-                                if (MicInjector.hasRoot()) {
-                                    Thread {
-                                        val file = File(context.filesDir, "mic_test.wav")
-                                        tts.awaitReady(5000)
-                                        tts.synthesizeToFile("麦克风测试", file) { ok ->
-                                            if (ok) {
-                                                MicInjector.injectAsync(context, file) { r ->
-                                                    say(r.message)
-                                                }
-                                            } else {
-                                                say("合成失败")
-                                            }
-                                        }
-                                    }.start()
-                                } else {
-                                    say("没有 root，声音只能从扬声器出来")
-                                }
+                                essayResult = null
+                                essayBusy = true
+                                say("正在写作文…")
+                                HomeworkSolver.solve(
+                                    context,
+                                    picked,
+                                    system = Prompt.writeEssay(grade, essayTopic),
+                                    userText = essayTopic,
+                                    onAnswer = { essayResult = it; essayBusy = false; say("作文写好了") },
+                                    onError = { msg -> essayResult = "出错了：$msg"; essayBusy = false; say("出错了") },
+                                )
                             },
-                        ) { Text("测试麦克风注入") }
+                        ) { Text("生成作文") }
+                    }
+                    val essay = essayResult
+                    if (essay != null) {
+                        Spacer(Modifier.height(10.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(8.dp))
+                        Text(essay, fontFamily = FontFamily.Monospace)
                     }
                 }
             }
@@ -538,6 +670,34 @@ fun HomeworkScreen(onBack: () -> Unit) {
                 }
             }
 
+            if (showAppPicker) {
+                AlertDialog(
+                    onDismissRequest = { showAppPicker = false },
+                    title = { Text("挑一个 App 作为朗读的麦克风目标") },
+                    text = {
+                        LazyColumn {
+                            items(installedApps, key = { it.first }) { (pkg, label) ->
+                                TextButton(onClick = {
+                                    targetPackage = pkg
+                                    MicInjector.targetPackage = pkg
+                                    HomeworkStore.set(context, "target_package", pkg)
+                                    showAppPicker = false
+                                    say("已选：$label")
+                                }) {
+                                    Column {
+                                        Text(label)
+                                        Text(pkg, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showAppPicker = false }) { Text("关闭") }
+                    },
+                )
+            }
+
             if (note != null) {
                 Spacer(Modifier.height(12.dp))
                 Text(note!!, style = MaterialTheme.typography.bodySmall)
@@ -545,6 +705,14 @@ fun HomeworkScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+private fun openOverlaySettings(context: android.content.Context, onError: () -> Unit) {
+    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSIONS).apply {
+        data = android.net.Uri.fromParts("package", context.packageName, null)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }.onFailure { onError() }
 }
 
 private fun launchCamera(context: android.content.Context, onResult: (List<Uri>) -> Unit) {

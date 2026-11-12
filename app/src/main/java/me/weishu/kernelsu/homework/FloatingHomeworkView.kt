@@ -37,6 +37,7 @@ class FloatingHomeworkView(
         fun onClose()
         fun onExpand()
         fun onOpenApp()
+        fun onGrantCamera()
         fun onMove(dx: Int, dy: Int)
     }
 
@@ -81,6 +82,13 @@ class FloatingHomeworkView(
 
     private val hintView = textView("点「拍照」开始，可连拍多页", 12f, false, 0xFF9AA6B2.toInt())
 
+    /** 相机权限缺失时显示，点了跳到系统的权限页去授权。 */
+    private val grantChip = chip("去授权相机") { callback.onGrantCamera() }
+        .apply { visibility = View.GONE }
+
+    /** 答案超过一题时显示，点了切到下一题。 */
+    private val chunkChip = chip("") { stepChunk() }.apply { visibility = View.GONE }
+
     private val answerView = TextView(context).apply {
         textSize = 13f
         setTextColor(0xFFEAF0F5.toInt())
@@ -102,7 +110,11 @@ class FloatingHomeworkView(
         addView(headerView)
         addView(spacer())
         addView(previewHolder)
-        addView(row(chip("拍照") { callback.onCapture() }, chip("清空") { callback.onClear() }))
+        addView(row(
+            chip("拍照") { callback.onCapture() },
+            chip("清空") { callback.onClear() },
+            grantChip,
+        ))
         addView(row(
             chip("解题") { callback.onSolve() },
             chip("朗读") { callback.onRead() },
@@ -110,6 +122,7 @@ class FloatingHomeworkView(
         ))
         addView(row(chip("答对了") { callback.onMarkCorrect() }, chip("答错了") { callback.onMarkWrong() }))
         addView(chip("打开一起作业") { callback.onOpenApp() })
+        addView(chunkChip)
         addView(
             answerScroll,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0).also {
@@ -125,6 +138,13 @@ class FloatingHomeworkView(
     private var dragStartX = 0
     private var dragStartY = 0
     private var dragging = false
+
+    private var expanded = false
+    private var lastAnswer: String? = null
+
+    /** 切好题的单题答案，[chunkIndex] 是当前显示的那题。 */
+    private var chunks: List<String> = emptyList()
+    private var chunkIndex = 0
 
     init {
         addView(container)
@@ -195,8 +215,8 @@ class FloatingHomeworkView(
      * 严严实实。改成按屏幕尺寸自适应，但留出上下左右的空档，让用户还能点到被盖住的东西。
      */
     private fun panelSize(): IntArray {
-        val dm = java.util.DisplayMetrics()
-        val wm = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+        val dm = android.util.DisplayMetrics()
+        val wm = context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
         @Suppress("DEPRECATION")
         val display = wm.defaultDisplay
         display.getMetrics(dm)
@@ -218,23 +238,53 @@ class FloatingHomeworkView(
     fun setLoading(value: Boolean) {
         if (value) {
             lastAnswer = null
+            chunks = emptyList()
+            chunkIndex = 0
             answerView.text = "正在让 AI 看题…"
-        } else if (lastAnswer != null) {
-            answerView.text = lastAnswer
+            renderChunk()
+        } else if (chunks.isNotEmpty()) {
+            answerView.text = chunks[chunkIndex]
         }
     }
 
     fun setAnswer(text: String) {
         lastAnswer = text
-        answerView.text = text
+        // 一份作业可能有多题，按 AI 给出的 `#第N题` 标记切开，逐题显示、逐题朗读。
+        chunks = HomeworkSolver.splitAnswer(text)
+        chunkIndex = 0
+        answerView.text = chunks.firstOrNull().orEmpty()
+        renderChunk()
     }
 
     fun setError(message: String) {
         lastAnswer = null
+        chunks = emptyList()
+        chunkIndex = 0
         answerView.text = "出错了：$message"
+        renderChunk()
     }
 
-    fun currentAnswer(): String = lastAnswer.orEmpty()
+    /** 相机权限有没有；没有就露出「去授权相机」。 */
+    fun setGrantVisible(visible: Boolean) {
+        grantChip.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
+    fun currentAnswer(): String = chunks.getOrNull(chunkIndex) ?: lastAnswer.orEmpty()
+
+    private fun renderChunk() {
+        val n = chunks.size
+        chunkChip.visibility = if (n > 1) View.VISIBLE else View.GONE
+        if (n > 1) chunkChip.text = "第 ${chunkIndex + 1}/$n 题　点我换题"
+    }
+
+    /** 切到下一题，循环。 */
+    private fun stepChunk() {
+        if (chunks.size <= 1) return
+        chunkIndex = (chunkIndex + 1) % chunks.size
+        answerView.text = chunks[chunkIndex]
+        renderChunk()
+        answerScroll.post { answerScroll.fullScroll(View.FOCUS_UP) }
+    }
 
     private fun row(vararg children: View): View = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL

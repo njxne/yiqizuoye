@@ -24,7 +24,6 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import java.io.File
 
 /**
  * 悬浮窗服务。
@@ -67,7 +66,6 @@ class FloatingWindowService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingImages = ArrayList<android.net.Uri>()
     private var solving = false
-    private var reading = false
     private var viewAdded = false
     private var cameraStarted = false
 
@@ -96,6 +94,7 @@ class FloatingWindowService : Service() {
         }
 
         override fun onOpenApp() = openTargetApp()
+        override fun onGrantCamera() = openAppSettings()
         override fun onMove(dx: Int, dy: Int) {
             val p = windowParams ?: return
             p.x = (p.x + dx).coerceAtLeast(0)
@@ -209,10 +208,13 @@ class FloatingWindowService : Service() {
 
     private fun ensureCamera() {
         val v = windowView ?: return
+        // 相机权限只能在系统设置里开，悬浮窗里就把入口露出来，别只丢一句提示。
+        v.setGrantVisible(!cameraPermissionGranted())
         if (!cameraPermissionGranted()) {
-            v.setHint("没有相机权限，先点「拍照」会打开全屏相机")
+            v.setHint("没有相机权限，先点「去授权相机」；也能直接点「拍照」用全屏相机")
             return
         }
+        v.setGrantVisible(false)
         val c = camera ?: HomeworkCamera.Controller(applicationContext, v.previewView)
             .also { camera = it }
         if (!cameraStarted) {
@@ -299,42 +301,26 @@ class FloatingWindowService : Service() {
             v.setHint("还没有答案，先拍题")
             return
         }
-        if (reading) {
-            tts.stop()
-            reading = false
+        if (AnswerReader.isBusy()) {
+            AnswerReader.stop(tts)
             v.setHint("已停止朗读")
             return
         }
-        reading = true
         v.setHint("正在准备朗读…")
-        Thread {
-            val file = File(filesDir, "tts_${System.currentTimeMillis()}.wav")
-            tts.awaitReady(5000)
-            tts.synthesizeToFile(text, file) { ok ->
-                if (!ok) {
-                    reading = false
-                    speakOut(text) { v.setHint("朗读中（扬声器）") }
-                    return@synthesizeToFile
-                }
-                MicInjector.targetPackage =
-                    HomeworkStore.get(this@FloatingWindowService, "target_package", MicInjector.targetPackage)
-                MicInjector.injectAsync(this@FloatingWindowService, file) { res ->
-                    mainHandler.post {
-                        reading = false
-                        v.setHint(res.message)
-                        if (!res.ok) {
-                            // 灌不进麦克风就老老实实从扬声器读出来。
-                            speakOut(text) { v.setHint("朗读中（扬声器）") }
-                        }
-                    }
-                }
+        val accepted = AnswerReader.read(this, tts, text, object : AnswerReader.Listener {
+            override fun onStart() {
+                mainHandler.post { v.setHint("正在朗读…") }
             }
-        }.start()
-    }
 
-    private fun speakOut(text: String, onStart: () -> Unit) {
-        onStart()
-        tts.speak(text)
+            override fun onDone() {
+                mainHandler.post { v.setHint("朗读结束，点「朗读」可以重听") }
+            }
+
+            override fun onError(message: String) {
+                mainHandler.post { v.setHint(message) }
+            }
+        })
+        if (!accepted) v.setHint("这次没接上朗读")
     }
 
     // ==================== 统计 ====================
@@ -383,6 +369,17 @@ class FloatingWindowService : Service() {
             startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } else {
             windowView?.setHint("没找到 $pkg，请在设置里改成正确的包名")
+        }
+    }
+
+    /** 跳到本 App 的系统设置页，让用户开相机权限。 */
+    private fun openAppSettings() {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = android.net.Uri.fromParts("package", packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (runCatching { startActivity(intent) }.isFailure) {
+            windowView?.setHint("打不开设置页，请手动去系统设置里授权相机")
         }
     }
 

@@ -28,6 +28,7 @@ object HomeworkStore {
     const val K_FLOAT = "float_enabled"
     const val K_SPEAKER_FALLBACK = "speaker_fallback"
     const val K_LAST_ANSWERED = "last_answered"
+    const val K_ESSAY_TOPIC = "essay_topic"
 
     const val DEF_BASE = AiClient.DEFAULT_BASE
     const val DEF_MODEL = AiClient.DEFAULT_MODEL
