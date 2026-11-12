@@ -108,6 +108,7 @@ class FloatingHomeworkView(
         setBackgroundDrawable(roundBackground(0xE620242B.toInt(), 18f))
 
         addView(headerView)
+        addView(hintView)
         addView(spacer())
         addView(previewHolder)
         addView(row(
@@ -315,7 +316,7 @@ class FloatingHomeworkView(
             gravity = Gravity.CENTER_VERTICAL
         }
 
-    private fun chip(text: String, onClick: () -> Unit): View =
+    private fun chip(text: String, onClick: () -> Unit): TextView =
         TextView(context).apply {
             this.text = text
             gravity = Gravity.CENTER

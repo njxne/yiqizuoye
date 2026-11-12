@@ -463,7 +463,7 @@ fun HomeworkScreen(onBack: () -> Unit) {
                             onClick = {
                                 val pm = context.packageManager
                                 installedApps = pm.getInstalledApplications(0)
-                                    .map { it.packageName to (it.loadLabel(pm) as String) }
+                                    .map { it.packageName to it.loadLabel(pm).toString() }
                                     .sortedBy { it.second }
                                 showAppPicker = true
                             },
@@ -708,7 +708,7 @@ fun HomeworkScreen(onBack: () -> Unit) {
 }
 
 private fun openOverlaySettings(context: android.content.Context, onError: () -> Unit) {
-    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSIONS).apply {
+    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
         data = android.net.Uri.fromParts("package", context.packageName, null)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
