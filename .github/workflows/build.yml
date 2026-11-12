@@ -1,0 +1,99 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify signing keystore
+        run: |
+          set -euo pipefail
+          # The keystore is committed, so every build is signed with the same key. A stable
+          # signature is required for the APK to install as an update over the previous build.
+          test -f key.jks
+          keytool -list -keystore key.jks -storepass kernelsu -alias ksu >/dev/null
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Build with Gradle
+        run: ./gradlew clean assembleRelease --no-daemon
+
+      - name: Report min/target SDK
+        run: |
+          AAPT2=$(ls -1 "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | head -1 || true)
+          if [ -n "$AAPT2" ]; then
+            "$AAPT2" dump badging app/build/outputs/apk/release/*.apk | head -20
+          else
+            echo "aapt2 not found; skipping"
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: manager-android9-release
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+  lint:
+    name: Lint API compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Run lint
+        run: ./gradlew :app:lintDebug --no-daemon || true
+
+      - name: Dump lint findings
+        run: |
+          XML=$(find app/build -name "lint-results-debug.xml" | head -1)
+          echo "XML=$XML"
+          if [ -n "$XML" ]; then
+            echo "=== issue ids ==="
+            grep -o 'id="[^"]*"' "$XML" | sort | uniq -c | sort -rn
+            echo "=== issue tags ==="
+            grep -o '<issue [^>]*>' "$XML" | head -300
+          else
+            echo "no xml report"
+          fi
+
+      - name: Upload lint report
+        uses: actions/upload-artifact@v7
+        with:
+          name: lint-android9
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+          if-no-files-found: ignore
