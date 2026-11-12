@@ -629,7 +629,21 @@ fun HomeworkScreen(onBack: () -> Unit) {
                             enabled = downloaded != null,
                             onClick = {
                                 val f = downloaded
-                                if (f != null) UpdateChecker.install(context, f)
+                                if (f != null) {
+                                    if (UpdateChecker.canInstall(context)) {
+                                        UpdateChecker.install(context, f)
+                                    } else {
+                                        // 没开「安装未知来源」时调起安装页会被直接拒掉，先去设置页。
+                                        updateText = "需要先开「安装未知来源」，开了再回来点「安装」"
+                                        context.startActivity(
+                                            Intent(
+                                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                                Uri.parse("package:${context.packageName}"),
+                                            )
+                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                        )
+                                    }
+                                }
                             },
                         ) { Text("安装") }
                     }

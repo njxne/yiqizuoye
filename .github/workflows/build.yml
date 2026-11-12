@@ -75,17 +75,39 @@ jobs:
             echo "release $TAG 已存在，删掉重建"
             gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes
           fi
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "一起作业 $TAG" \
-            --notes "build \`$GITHUB_SHA\`
 
-            $TAG · $SIZE bytes
+          NOTES="build \`$GITHUB_SHA\`
 
-            - 悬浮窗拍题，AI 直接给答案
-            - 本地语音朗读，可尝试注入目标 App 的麦克风
-            - 答题统计、应用内更新" \
-            "$APK"
+  $TAG · $SIZE bytes
+
+  - 悬浮窗拍题，AI 直接给答案
+  - 本地语音朗读，可尝试注入目标 App 的麦克风
+  - 答题统计、应用内更新"
+
+          # 建 release 和传资产是两个请求，实测都会偶发 HTTP 500。分开重试，
+          # 不然一次 500 就把已经传好的 APK 全废掉、整个 run 标红。
+          for i in 1 2 3; do
+            if gh release create "$TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "一起作业 $TAG" \
+                --notes "$NOTES"; then
+              break
+            fi
+            echo "第 $i 次创建 release 失败，10 秒后重试"
+            sleep 10
+          done
+
+          for i in 1 2 3 4 5; do
+            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$APK"; then
+              echo "release $TAG 发布完成"
+              exit 0
+            fi
+            echo "第 $i 次上传 APK 失败，10 秒后重试"
+            sleep 10
+          done
+
+          echo "发布 $TAG 失败"
+          exit 1
 
   lint:
     name: Lint API compatibility

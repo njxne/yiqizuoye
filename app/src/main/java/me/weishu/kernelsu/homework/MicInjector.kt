@@ -82,11 +82,18 @@ object MicInjector {
             ))
             return
         }
-        onState(Result(State.INJECTING, "正在把朗读音频写进虚拟麦克风…"))
+        onState(Result(State.INJECTING, "正在把朗读音频写进虚拟麦克风…（「$targetPackage」得正在录音，收不到会自动改成扬声器念）"))
         if (playInto(shell, card, audio)) {
-            onState(Result(State.DONE, "声音已灌进麦克风，去「$targetPackage」里点开始朗读"))
+            onState(Result(
+                State.DONE,
+                "声音已灌进虚拟麦克风。它只对正在录音的 App 有效——这次「$targetPackage」要是没在录音就收不到，" +
+                    "那就先在那边点开始朗读，再回来点一次朗读",
+            ))
         } else {
-            onState(Result(State.FAILED, "写入虚拟麦克风失败，声音只能从扬声器出来"))
+            onState(Result(
+                State.FAILED,
+                "写入虚拟麦克风失败（多半是「$targetPackage」没在录音，写进去没人读就堵死了），声音改成从扬声器念",
+            ))
         }
     }
 
@@ -131,10 +138,10 @@ object MicInjector {
     }
 
     private fun routeMicToLoopback(shell: Shell, card: Int): Boolean {
-        val listing = ShellUtils.fastCmd(
-            shell,
-            "tinymix -c $card 2>/dev/null || tinymix 2>/dev/null || tinymix -l 2>/dev/null",
-        )
+        // 麦克风源的开关在主板那张卡上，aloop 虚拟卡自己一般没有混音控制项。
+        // 列清单和写开关必须用同一张卡，不然就是在 aloop 卡上改一个根本不存在的开关。
+        val ctlCard = mainCard(shell) ?: 0
+        val listing = ShellUtils.fastCmd(shell, "tinymix -c $ctlCard 2>/dev/null")
         val controls = listing.lines().map { it.trim() }.filter { it.isNotEmpty() }
         if (controls.isEmpty()) return false
 
@@ -144,8 +151,9 @@ object MicInjector {
             if (idx < 0) continue
             // 该控制项的值：优先试虚拟声卡名，再试常见的「Mic reference」类值。
             for (value in listOf("Loopback", "snd-aloop", "Mic reference", "Mic Reference", "loopback")) {
-                if (ShellUtils.fastCmdResult(shell, "tinymix -c $card '$candidate' '$value' 2>/dev/null")) {
-                    Log.i(TAG, "mic source -> $candidate = $value")
+                val ctl = controls[idx]
+                if (ShellUtils.fastCmdResult(shell, "tinymix -c $ctlCard '$ctl' '$value' 2>/dev/null")) {
+                    Log.i(TAG, "mic source (card $ctlCard) -> $ctl = $value")
                     return true
                 }
             }
@@ -153,19 +161,38 @@ object MicInjector {
         return false
     }
 
+    /** 主板声卡的编号：`/proc/asound/cards` 里第一张不是 loopback 的卡。 */
+    private fun mainCard(shell: Shell): Int? {
+        val cards = ShellUtils.fastCmd(shell, "cat /proc/asound/cards 2>/dev/null")
+        for (line in cards.lines()) {
+            val t = line.trim()
+            if (t.isEmpty() || !t.contains(":", false)) continue
+            val name = t.substringAfter(':').trim().lowercase()
+            if (name.contains("loopback") || name.contains("aloop")) continue
+            return t.substringBefore(':').trim().substringBefore('-').trim().toIntOrNull()
+        }
+        return null
+    }
+
     private fun playInto(shell: Shell, card: Int, audio: File): Boolean {
         val dev = "/dev/snd/hw$card,0"
         val path = audio.absolutePath
+        // 超时按音频时长算，别写死：s16le / 44.1kHz / 立体声是 176400 字节每秒，
+        // 目标 App 在录音时写完大约要这么久；它没在录音时写会一直堵在缓冲区上，靠超时兜底。
+        // Android 9 的 toybox 自带 timeout。
+        val seconds = (audio.length() - 44).coerceAtLeast(0L) / 176_400L + 15L
         // snd-aloop 默认是 16bit / 44.1kHz / 立体声，先按这个格式灌。
         if (ShellUtils.fastCmdResult(shell, "command -v ffmpeg 2>/dev/null")) {
-            val direct = "ffmpeg -nostdin -y -i '$path' -f s16le -acodec pcm_s16le -ar 44100 -ac 2 '$dev'"
+            val direct =
+                "timeout $seconds ffmpeg -nostdin -y -i '$path' -f s16le -acodec pcm_s16le -ar 44100 -ac 2 '$dev' 2>/dev/null"
             if (ShellUtils.fastCmdResult(shell, direct)) return true
             val piped =
-                "ffmpeg -nostdin -y -i '$path' -f s16le -acodec pcm_s16le -ar 44100 -ac 2 - 2>/dev/null | cat > '$dev'"
+                "timeout $seconds sh -c \"ffmpeg -nostdin -y -i '$path' -f s16le -acodec pcm_s16le -ar 44100 -ac 2 - 2>/dev/null | cat > '$dev'\""
             if (ShellUtils.fastCmdResult(shell, piped)) return true
         }
         // 没有 ffmpeg 就硬把 WAV 头剥掉直接写裸 PCM（头部长度因文件而异，44 是常见值）。
-        val raw = "dd if='$path' bs=44 skip=1 2>/dev/null | cat > '$dev'"
+        val raw =
+            "timeout $seconds sh -c \"dd if='$path' bs=44 skip=1 2>/dev/null | cat > '$dev'\""
         return ShellUtils.fastCmdResult(shell, raw)
     }
 }

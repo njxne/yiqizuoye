@@ -2,6 +2,7 @@ package me.weishu.kernelsu.homework
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
 import kotlinx.serialization.json.Json
@@ -33,6 +34,11 @@ object UpdateChecker {
         "https://ghproxy.net/https://github.com/",
     )
 
+    /** gh-proxy 也能代理 api.github.com；ghfast.top / ghproxy.net 对 API 路径直接 403，不能用。 */
+    private const val API_MIRROR = "https://gh-proxy.com/"
+
+    private const val USER_AGENT = "yiqizuoye-app"
+
     private val apiClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -52,7 +58,7 @@ object UpdateChecker {
         val notes: String,
     )
 
-    /** 检查更新（后台线程）。 */
+    /** 检查更新（后台线程）。直连不通就换镜像源，别一上来就报失败。 */
     fun check(
         repo: String = REPO,
         currentVersionName: String,
@@ -60,39 +66,55 @@ object UpdateChecker {
         onResult: (Result) -> Unit,
     ) {
         Thread {
-            try {
-                val url = "https://api.github.com/repos/$repo/releases/latest"
-                val request = Request.Builder()
-                    .url(url)
-                    .header("Accept", "application/vnd.github+json")
-                    .header("User-Agent", "yiqizuoye-app")
-                    .get()
-                    .build()
-                val body = execute(request)
-                val root = Json.parseToJsonElement(body).jsonObject
-
-                val tag = root["tag_name"]?.jsonPrimitive?.contentOrNull
-                    ?: throw IOException("release 里没有 tag_name")
-                val assets = root["assets"]?.jsonArray ?: emptyList()
-                val asset = assets.mapNotNull { it.jsonObject }
-                    .filter { it["name"]?.jsonPrimitive?.contentOrNull?.endsWith(".apk", true) == true }
-                    .maxByOrNull { it["size"]?.jsonPrimitive?.longOrNull ?: 0L }
-                    ?: throw IOException("这个 release 里没有 apk")
-
-                val name = asset["name"]?.jsonPrimitive?.contentOrNull
-                    ?: throw IOException("没有 apk 文件名")
-                val download = asset["browser_download_url"]?.jsonPrimitive?.contentOrNull
-                    ?: throw IOException("没有下载地址")
-                val notes = root["body"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                val code = versionCodeOf(tag)
-
-                val release = Release(tag, code, download, name, notes)
-                onResult(if (code > currentVersionCode) Result.Available(release) else Result.UpToDate)
-            } catch (e: Exception) {
-                Log.w(TAG, "check failed", e)
-                onResult(Result.Error(e.message ?: "检查更新失败"))
+            var lastError: String? = null
+            for (url in apiCandidates(repo)) {
+                try {
+                    val body = execute(Request.Builder()
+                        .url(url)
+                        .header("Accept", "application/vnd.github+json")
+                        .header("User-Agent", USER_AGENT)
+                        .get()
+                        .build())
+                    val release = parse(body)
+                    onResult(if (release.versionCode > currentVersionCode) {
+                        Result.Available(release)
+                    } else {
+                        Result.UpToDate
+                    })
+                    return@Thread
+                } catch (e: Exception) {
+                    Log.w(TAG, "check failed on ${url.take(48)}", e)
+                    lastError = e.message ?: "检查更新失败"
+                }
             }
+            onResult(Result.Error(lastError ?: "检查更新失败"))
         }.start()
+    }
+
+    /** 先直连 api.github.com，不通再走 gh-proxy 的 API 代理。 */
+    private fun apiCandidates(repo: String): List<String> {
+        val path = "repos/$repo/releases/latest"
+        return listOf(
+            "https://api.github.com/$path",
+            API_MIRROR + "https://api.github.com/$path",
+        )
+    }
+
+    private fun parse(body: String): Release {
+        val root = Json.parseToJsonElement(body).jsonObject
+        val tag = root["tag_name"]?.jsonPrimitive?.contentOrNull
+            ?: throw IOException("release 里没有 tag_name")
+        val assets = root["assets"]?.jsonArray ?: emptyList()
+        val asset = assets.mapNotNull { it.jsonObject }
+            .filter { it["name"]?.jsonPrimitive?.contentOrNull?.endsWith(".apk", true) == true }
+            .maxByOrNull { it["size"]?.jsonPrimitive?.longOrNull ?: 0L }
+            ?: throw IOException("这个 release 里没有 apk")
+        val name = asset["name"]?.jsonPrimitive?.contentOrNull
+            ?: throw IOException("没有 apk 文件名")
+        val download = asset["browser_download_url"]?.jsonPrimitive?.contentOrNull
+            ?: throw IOException("没有下载地址")
+        val notes = root["body"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        return Release(tag, versionCodeOf(tag), download, name, notes)
     }
 
     /** 下载 apk（后台线程，逐个试镜像）。 */
@@ -123,6 +145,14 @@ object UpdateChecker {
             onDone(null, lastError ?: "所有镜像源都下不动")
         }.start()
     }
+
+    /** 安装 apk 前得先看用户开没开「安装未知来源」，没开的话调起安装页会直接被拒。 */
+    fun canInstall(context: Context): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.packageManager.canRequestPackageInstalls()
+        } else {
+            true
+        }
 
     /** 调起系统安装页。 */
     fun install(context: Context, apk: File) {
