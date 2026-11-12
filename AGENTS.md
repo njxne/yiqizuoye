@@ -179,11 +179,23 @@ KSU 管理器那堆东西清完之后，又从「用户第一次装这个 App �
 4. **「API Key（可留空）」是误导**。默认接口 `ai.murk.top` 没 Key 直接 401，留空用不了。改成「多数接口必填」。
 5. **首页打开是一大长串设置，没有上手引导**。加了一张「三步开始」卡片：填 AI 设置 → 开悬浮窗 → 回桌面点「拍」。
 
-## 体验官走查记录（第四轮，待做）
+## 体验官走查记录（第四轮，已做）
 
-- **作业页本身用的是普通 Material3，不是 KSU 的 miuix 控件**。App 外壳（底栏、双主题、设置页、关于页）是 KSU 同款，
-  但 `HomeworkScreen.kt`（763 行）是 `androidx.compose.material3.Card/Button/OutlinedTextField` 手写的，
-  跟 miuix 的观感明显不一致 —— 用户要的是「界面也要同款」。这是下一轮最该做、也是最大的一块。
+走查时发现一个比「控件风格」更实在的问题：作业页用的是 Material3 控件，而 App 默认界面风格是 **Miuix**。
+`KernelSUTheme` 只在 `UiMode.Material` 下才包 `MaterialExpressiveTheme`，也就是说默认情况下作业页的
+卡片、按钮、输入框、顶栏全都读不到 App 的配色与字体，会掉进 Material3 的默认深色配色 —— 跟设置页、
+关于页完全是两个样子。
+
+修法：在 `HomeworkScreen.kt` 里给作业页显式套上 KSU 自己的 `MaterialKernelSUTheme`
+（`app/src/main/java/me/weishu/kernelsu/homework/HomeworkScreen.kt:149`），用 App 真实的配色与字体，
+两种界面风格下都不会走样。这一轮同时删掉了 5 个全项目零引用的死文件
+（`HomeworkEntryCard` `DropdownItem` `ExpressiveToggleButton` `PinyinUtil` `keyColorOptions`）。
+
+**还留着的一块**：作业页内层仍是 Material3 控件（现在配色正确了），没有逐个换成 miuix 控件。
+miuix 0.9.4 的 `TextField` 已经改用 `TextFieldState`（不再是 `value`/`onValueChange`），要把 5 个
+输入框连状态管理一起重写；本机没有编译器、只能靠 CI 盲改，风险很高，所以这轮先做确定正确的配色修复，
+控件逐个换掉留作后续。
+
 - 悬浮窗是原生 `View` 搭的（KSU 没有悬浮窗，没有可抄的控件），这个不算违背「同款」。
 
 ## 已知限制（别假装能跑）
